@@ -1,12 +1,8 @@
 import type { Diagnostic } from "../diagnostics.js";
 import { diagnostic } from "../diagnostics.js";
-import type {
-  RawHarEntry,
-  RawHarHeader,
-  RawHarPage,
-} from "../parse/har-types.js";
+import type { RawHarEntry, RawHarHeader, RawHarPage } from "../parse/har-types.js";
 import type { HarParseResult } from "../parse/parse-har.js";
-import { requestBodyKey } from "./canonicalise.js";
+import { keyRequestBody } from "./canonicalise.js";
 import { fnv1a64 } from "./hash.js";
 import type {
   NormalisedCapture,
@@ -16,16 +12,34 @@ import type {
 } from "./types.js";
 import { splitUrl } from "./url.js";
 
-/** HAR uses -1 for "not measured". Durations are summed, so -1 becomes 0. */
+/**
+ * Entries are built mutable and frozen on the way out. Nothing outside this
+ * module ever sees the mutable form.
+ */
+type Draft<T> = { -readonly [K in keyof T]: T[K] };
+
+/** Above this share of dropped entries, capture totals stop being trustworthy. */
+const UNRELIABLE_DROP_RATIO = 0.01;
+
+/**
+ * Components (wait, blocked) floor to 0 when unreported. See the JSDoc on
+ * NormalisedEntry.waitMs for why this differs from durationMs.
+ */
+function componentMs(value: number | undefined): { value: number; reported: boolean } {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return { value: 0, reported: false };
+  }
+  return { value, reported: true };
+}
+
 function nonNegative(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
   return value;
 }
 
 /**
- * Page timings keep their -1 as null instead of collapsing to 0. Unlike
- * durations these are never summed, and "the browser did not report onLoad" is
- * a different statement from "onLoad happened at zero milliseconds".
+ * Durations and page timings keep null for "unknown" rather than collapsing to
+ * zero, because zero is a claim about what happened.
  */
 function optionalTiming(value: number | undefined): number | null {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
@@ -40,8 +54,8 @@ function text(value: string | undefined, fallback: string): string {
  * Parse startedDateTime to epoch milliseconds.
  *
  * Date.parse handles the ISO 8601 offset, which is why the string is never
- * sliced: a capture taken in New York and one taken in London are directly
- * comparable only if the offset is honoured.
+ * sliced: a capture taken in New York and one taken in London are comparable
+ * only if the offset is honoured.
  */
 function epochMs(value: string | undefined): number | null {
   if (typeof value !== "string" || value === "") return null;
@@ -71,12 +85,20 @@ function readResponseHeaders(headers: RawHarHeader[] | undefined): {
   return { cacheControl, etag };
 }
 
-/**
- * Turn one raw entry into a normalised one, leaving index and offsetMs unset —
- * both depend on the capture's ordering, which is not known until every entry
- * has been read.
- */
-function normaliseEntry(raw: RawHarEntry, startedAt: number): NormalisedEntry {
+/** Counters accumulated while reading entries, used to raise diagnostics. */
+interface Tally {
+  undated: number;
+  unknownDuration: number;
+  unreportedTimings: number;
+  nonJsonBody: number;
+}
+
+function normaliseEntry(
+  raw: RawHarEntry,
+  startedAt: number,
+  sourceIndex: number,
+  tally: Tally,
+): Draft<NormalisedEntry> {
   const request = raw.request;
   const response = raw.response;
   const timings = raw.timings;
@@ -84,8 +106,17 @@ function normaliseEntry(raw: RawHarEntry, startedAt: number): NormalisedEntry {
   const url = text(request?.url, "");
   const { origin, path } = splitUrl(url);
 
-  const durationMs = nonNegative(raw.time);
+  const durationMs = optionalTiming(raw.time);
+  if (durationMs === null) tally.unknownDuration++;
+
+  const wait = componentMs(timings?.wait);
+  const blocked = componentMs(timings?.blocked);
+  if (!wait.reported || !blocked.reported) tally.unreportedTimings++;
+
   const body = typeof request?.postData?.text === "string" ? request.postData.text : null;
+  const bodyKey = keyRequestBody(body);
+  if (body !== null && !bodyKey.fromJson) tally.nonJsonBody++;
+
   const responseText = response?.content?.text;
   const { cacheControl, etag } = readResponseHeaders(response?.headers);
 
@@ -93,27 +124,27 @@ function normaliseEntry(raw: RawHarEntry, startedAt: number): NormalisedEntry {
   const error = typeof response?._error === "string" ? response._error : null;
 
   // The specification spells it pageref; some tools emit pageRef. Accept both,
-  // and treat an empty string as no page rather than as a page named "".
+  // and treat an empty string as no page rather than a page named "".
   const rawPageRef = raw.pageref ?? raw.pageRef;
-  const pageRef =
-    typeof rawPageRef === "string" && rawPageRef !== "" ? rawPageRef : null;
+  const pageRef = typeof rawPageRef === "string" && rawPageRef !== "" ? rawPageRef : null;
 
   return {
     index: -1,
+    sourceIndex,
     pageRef,
     startedAt,
     offsetMs: 0,
-    endedAt: startedAt + durationMs,
+    endedAt: durationMs === null ? null : startedAt + durationMs,
     durationMs,
-    waitMs: nonNegative(timings?.wait),
-    blockedMs: nonNegative(timings?.blocked),
+    waitMs: wait.value,
+    blockedMs: blocked.value,
     method: text(request?.method, ""),
     url,
     origin,
     path,
     status,
     requestBody: body,
-    requestBodyKey: requestBodyKey(body),
+    requestBodyKey: bodyKey.key,
     responseBodyHash: typeof responseText === "string" ? fnv1a64(responseText) : null,
     transferBytes: nonNegative(response?._transferSize),
     contentBytes: nonNegative(response?.content?.size),
@@ -131,34 +162,32 @@ function normaliseEntry(raw: RawHarEntry, startedAt: number): NormalisedEntry {
  *
  * Pure: no IO, no clock, no randomness. The same parse result always produces
  * the same model, which is what lets a run record be trusted months later.
+ *
+ * The returned structure is frozen. Entry indices are positions in the sorted
+ * array and are referenced by every finding, so a consumer re-sorting the array
+ * in place would invalidate stored evidence without anything failing.
  */
 export function normaliseHar(parsed: HarParseResult): NormaliseResult {
   const diagnostics: Diagnostic[] = [...parsed.diagnostics];
+  const tally: Tally = {
+    undated: 0,
+    unknownDuration: 0,
+    unreportedTimings: 0,
+    nonJsonBody: 0,
+  };
 
-  // Pass one: build entries, dropping any we cannot place in time.
-  const entries: NormalisedEntry[] = [];
-  let undated = 0;
-  for (const raw of parsed.entries) {
+  // Pass one: build entries, dropping any we cannot place in time. sourceIndex
+  // is the position in the file's array, so it keeps counting past the drops.
+  const entries: Draft<NormalisedEntry>[] = [];
+  for (let sourceIndex = 0; sourceIndex < parsed.entries.length; sourceIndex++) {
+    const raw = parsed.entries[sourceIndex];
+    if (raw === undefined) continue;
     const startedAt = epochMs(raw.startedDateTime);
     if (startedAt === null) {
-      undated++;
+      tally.undated++;
       continue;
     }
-    entries.push(normaliseEntry(raw, startedAt));
-  }
-  if (undated > 0) {
-    diagnostics.push(
-      diagnostic(
-        "entry-missing-timestamp",
-        "Dropped " +
-          String(undated) +
-          (undated === 1 ? " entry that had" : " entries that had") +
-          " no usable startedDateTime. An entry with no start time cannot be" +
-          " ordered, offset or swept for concurrency, so it is excluded rather" +
-          " than given a false timestamp.",
-        undated,
-      ),
-    );
+    entries.push(normaliseEntry(raw, startedAt, sourceIndex, tally));
   }
 
   // Order by start time. Exporters do not guarantee file order, and offsetMs,
@@ -175,6 +204,7 @@ export function normaliseHar(parsed: HarParseResult): NormaliseResult {
   let totalTransferBytes = 0;
   let totalContentBytes = 0;
   const entriesByPage = new Map<string, number[]>();
+  const unpagedEntryIndices: number[] = [];
 
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
@@ -183,20 +213,33 @@ export function normaliseHar(parsed: HarParseResult): NormaliseResult {
     entry.index = i;
     entry.offsetMs = entry.startedAt - captureStart;
 
-    if (entry.endedAt > captureEnd) captureEnd = entry.endedAt;
+    // An entry whose duration is unknown contributes only its start, so the
+    // window stays a lower bound rather than being padded with a guess.
+    const end = entry.endedAt ?? entry.startedAt;
+    if (end > captureEnd) captureEnd = end;
+
     totalTransferBytes += entry.transferBytes;
     totalContentBytes += entry.contentBytes;
 
-    if (entry.pageRef !== null) {
+    if (entry.pageRef === null) {
+      unpagedEntryIndices.push(i);
+    } else {
       const group = entriesByPage.get(entry.pageRef);
       if (group === undefined) entriesByPage.set(entry.pageRef, [i]);
       else group.push(i);
     }
   }
 
-  const pages = buildPages(parsed.pages, entries, entriesByPage, diagnostics);
+  const frozenEntries = entries.map((entry) => Object.freeze(entry as NormalisedEntry));
+  const pages = buildPages(parsed.pages, frozenEntries, entriesByPage, diagnostics);
 
-  const capture: NormalisedCapture = {
+  addTallyDiagnostics(diagnostics, tally, parsed.entries.length, entries.length);
+
+  const attempted = parsed.entries.length;
+  const reliable =
+    attempted === 0 || tally.undated / attempted <= UNRELIABLE_DROP_RATIO;
+
+  const capture: NormalisedCapture = Object.freeze({
     entryCount: entries.length,
     pageCount: pages.length,
     startedAt: entries.length === 0 ? 0 : captureStart,
@@ -204,17 +247,105 @@ export function normaliseHar(parsed: HarParseResult): NormaliseResult {
     windowMs: entries.length === 0 ? 0 : captureEnd - captureStart,
     totalTransferBytes,
     totalContentBytes,
+    unpagedEntryIndices: Object.freeze(unpagedEntryIndices),
     complete: parsed.complete,
     recoveredEntries: parsed.recoveredEntries,
-    truncatedAt: parsed.truncatedAt,
-  };
+    truncatedAtCharOffset: parsed.truncatedAtCharOffset,
+    droppedEntries: tally.undated,
+    reliable,
+  });
 
-  return { entries, pages, capture, diagnostics };
+  return Object.freeze({
+    entries: Object.freeze(frozenEntries),
+    pages: Object.freeze(pages),
+    capture,
+    diagnostics: Object.freeze(diagnostics),
+  });
+}
+
+function addTallyDiagnostics(
+  diagnostics: Diagnostic[],
+  tally: Tally,
+  attempted: number,
+  kept: number,
+): void {
+  if (tally.undated > 0) {
+    const ratio = attempted === 0 ? 0 : tally.undated / attempted;
+    const unreliable = ratio > UNRELIABLE_DROP_RATIO;
+    diagnostics.push(
+      diagnostic(
+        "entry-missing-timestamp",
+        unreliable ? "error" : "warning",
+        "Dropped " +
+          String(tally.undated) +
+          (tally.undated === 1 ? " entry that had" : " entries that had") +
+          " no usable startedDateTime. An entry with no start time cannot be" +
+          " ordered, offset or swept for concurrency, so it is excluded rather" +
+          " than given a false timestamp." +
+          (unreliable
+            ? " That is more than 1% of the capture, so capture-wide totals are" +
+              " incomplete and must not be presented as whole."
+            : ""),
+        tally.undated,
+        { dropped: tally.undated, attempted, kept, ratio },
+      ),
+    );
+  }
+
+  if (tally.unknownDuration > 0) {
+    diagnostics.push(
+      diagnostic(
+        "entry-missing-duration",
+        "warning",
+        String(tally.unknownDuration) +
+          (tally.unknownDuration === 1 ? " entry reports" : " entries report") +
+          " no duration. They are excluded from duration sums and from the" +
+          " concurrency sweep rather than treated as instantaneous, so both are" +
+          " computed over fewer entries than the capture contains.",
+        tally.unknownDuration,
+        { entries: tally.unknownDuration },
+      ),
+    );
+  }
+
+  if (tally.unreportedTimings > 0) {
+    diagnostics.push(
+      diagnostic(
+        "unreported-timings",
+        "warning",
+        String(tally.unreportedTimings) +
+          (tally.unreportedTimings === 1 ? " entry has" : " entries have") +
+          " an unreported wait or blocked timing, recorded as 0. Any sum of" +
+          " those timings is therefore a LOWER BOUND, not a total, and should" +
+          " be presented as such.",
+        tally.unreportedTimings,
+        { entries: tally.unreportedTimings },
+      ),
+    );
+  }
+
+  if (tally.nonJsonBody > 0) {
+    diagnostics.push(
+      diagnostic(
+        "non-json-request-body",
+        "warning",
+        String(tally.nonJsonBody) +
+          (tally.nonJsonBody === 1 ? " request body is" : " request bodies are") +
+          " not JSON (form-encoded, multipart or plain text). Those bodies" +
+          " cannot be canonicalised by key order, so their keys match only" +
+          " byte-identical bodies and duplicate detection may UNDER-REPORT for" +
+          " them. A quiet 'no duplicates' over such entries is not evidence" +
+          " that there were none.",
+        tally.nonJsonBody,
+        { entries: tally.nonJsonBody },
+      ),
+    );
+  }
 }
 
 function buildPages(
   rawPages: RawHarPage[],
-  entries: NormalisedEntry[],
+  entries: readonly NormalisedEntry[],
   entriesByPage: Map<string, number[]>,
   diagnostics: Diagnostic[],
 ): NormalisedPage[] {
@@ -234,10 +365,10 @@ function buildPages(
     const startedAt = epochMs(rawPage.startedDateTime);
     const indices = entriesByPage.get(pageRef) ?? [];
 
-    // Indices are already in time order, so the window is the first entry's
-    // start and the latest end among them. The latest end is not necessarily
-    // the last entry's end: a long request started early can outlast everything
-    // after it.
+    // Indices are already in time order, so the window starts at the first
+    // entry. The end is the latest end among them, which is not necessarily the
+    // last entry's: a long request started early can outlast everything after
+    // it.
     let firstEntryAt = startedAt ?? 0;
     let lastEntryEndAt = firstEntryAt;
     let transferBytes = 0;
@@ -250,36 +381,41 @@ function buildPages(
       for (const index of indices) {
         const entry = entries[index];
         if (entry === undefined) continue;
-        if (entry.endedAt > lastEntryEndAt) lastEntryEndAt = entry.endedAt;
+        const end = entry.endedAt ?? entry.startedAt;
+        if (end > lastEntryEndAt) lastEntryEndAt = end;
         transferBytes += entry.transferBytes;
       }
     }
 
-    pages.push({
-      pageRef,
-      title: text(rawPage.title, ""),
-      startedAt,
-      onContentLoadMs: optionalTiming(rawPage.pageTimings?.onContentLoad),
-      onLoadMs: optionalTiming(rawPage.pageTimings?.onLoad),
-      entryCount: indices.length,
-      entryIndices: indices,
-      firstEntryAt,
-      lastEntryEndAt,
-      durationMs: lastEntryEndAt - firstEntryAt,
-      transferBytes,
-    });
+    pages.push(
+      Object.freeze({
+        pageRef,
+        title: text(rawPage.title, ""),
+        startedAt,
+        onContentLoadMs: optionalTiming(rawPage.pageTimings?.onContentLoad),
+        onLoadMs: optionalTiming(rawPage.pageTimings?.onLoad),
+        entryCount: indices.length,
+        entryIndices: Object.freeze(indices),
+        firstEntryAt,
+        lastEntryEndAt,
+        durationMs: lastEntryEndAt - firstEntryAt,
+        transferBytes,
+      }),
+    );
   }
 
   if (duplicateIds > 0) {
     diagnostics.push(
       diagnostic(
         "duplicate-page-id",
+        "warning",
         "Ignored " +
           String(duplicateIds) +
           " page " +
           (duplicateIds === 1 ? "record" : "records") +
           " that reused an id already seen. The first record for an id wins.",
         duplicateIds,
+        { duplicates: duplicateIds },
       ),
     );
   }
@@ -299,6 +435,7 @@ function buildPages(
     diagnostics.push(
       diagnostic(
         "unresolved-page-ref",
+        "warning",
         String(unresolvedEntries) +
           (unresolvedEntries === 1 ? " entry names" : " entries name") +
           " a page that the capture does not describe (" +
@@ -306,6 +443,7 @@ function buildPages(
           (unresolvedRefs === 1 ? " reference" : " references") +
           "). They are still grouped by that reference.",
         unresolvedEntries,
+        { entries: unresolvedEntries, references: unresolvedRefs },
       ),
     );
   }

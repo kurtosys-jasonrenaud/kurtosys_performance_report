@@ -26,12 +26,14 @@ export interface HarParseResult {
    * Where recovery stopped, as an offset into the source string, or null if
    * the file was complete.
    *
-   * This is a character offset (UTF-16 code units), not a byte offset. For HAR
-   * files the two are the same in practice — the JSON is overwhelmingly ASCII
-   * — and reporting the string offset avoids a second pass over 67MB purely to
-   * convert units.
+   * The unit is in the name on purpose. This counts UTF-16 code units, not
+   * bytes. For HAR files the two are the same in practice — the JSON is
+   * overwhelmingly ASCII — and reporting the string offset avoids a second
+   * pass over 67MB purely to convert units. But someone will eventually take
+   * this number and seek to it in a file, and if it were called truncatedAt
+   * they would land mid-character on the one capture where it matters.
    */
-  truncatedAt: number | null;
+  truncatedAtCharOffset: number | null;
   diagnostics: Diagnostic[];
 }
 
@@ -77,10 +79,11 @@ export function parseHar(source: string): HarParseResult {
       pages: [],
       complete: false,
       recoveredEntries: 0,
-      truncatedAt: null,
+      truncatedAtCharOffset: null,
       diagnostics: [
         diagnostic(
           "unrecognised-shape",
+          "error",
           "The file is valid JSON but does not look like a HAR log: no entries array was found.",
         ),
       ],
@@ -92,7 +95,11 @@ export function parseHar(source: string): HarParseResult {
   const diagnostics: Diagnostic[] = [];
   if (entries.length === 0) {
     diagnostics.push(
-      diagnostic("empty-capture", "The capture parsed cleanly but contains no entries."),
+      diagnostic(
+        "empty-capture",
+        "info",
+        "The capture parsed cleanly but contains no entries.",
+      ),
     );
   }
 
@@ -101,7 +108,7 @@ export function parseHar(source: string): HarParseResult {
     pages,
     complete: true,
     recoveredEntries: entries.length,
-    truncatedAt: null,
+    truncatedAtCharOffset: null,
     diagnostics,
   };
 }
@@ -123,6 +130,7 @@ function recoverTruncated(source: string): HarParseResult {
     diagnostics.push(
       diagnostic(
         "entries-not-found",
+        "error",
         "The file could not be parsed and no entries array could be located in it. Nothing was recovered.",
       ),
     );
@@ -131,7 +139,7 @@ function recoverTruncated(source: string): HarParseResult {
       pages: pages.items as RawHarPage[],
       complete: false,
       recoveredEntries: 0,
-      truncatedAt: null,
+      truncatedAtCharOffset: null,
       diagnostics,
     };
   }
@@ -141,6 +149,7 @@ function recoverTruncated(source: string): HarParseResult {
   diagnostics.push(
     diagnostic(
       "truncated-capture",
+      "error",
       "The capture is incomplete: the file does not parse as a whole. " +
         "Recovered " +
         String(recovered) +
@@ -149,6 +158,8 @@ function recoverTruncated(source: string): HarParseResult {
         (at === null ? "." : ", stopping at offset " + String(at) + ".") +
         " Counts and totals describe only what was recovered, and must not be" +
         " compared against a complete capture as though they were whole.",
+      recovered,
+      { recoveredEntries: recovered, truncatedAtCharOffset: at },
     ),
   );
 
@@ -157,7 +168,7 @@ function recoverTruncated(source: string): HarParseResult {
     pages: pages.items as RawHarPage[],
     complete: false,
     recoveredEntries: recovered,
-    truncatedAt: at,
+    truncatedAtCharOffset: at,
     diagnostics,
   };
 }

@@ -21,7 +21,11 @@ import { fnv1a64 } from "./hash.js";
  * Non-JSON bodies fall back to the raw string. Form-encoded bodies therefore do
  * not canonicalise by key order; a=1&b=2 and b=2&a=1 hash differently. That is
  * a known gap, left open until we see it in a real capture rather than guessed
- * at now.
+ * at now — but it is a gap that produces FALSE NEGATIVES, which are invisible.
+ * A duplicate detector that quietly reports nothing when there were three
+ * identical form posts is worse than one that admits a blind spot, so
+ * keyRequestBody reports whether the body was JSON and normalise/ raises a
+ * diagnostic when it was not.
  */
 
 /**
@@ -86,6 +90,34 @@ export function canonicaliseBody(body: string): string {
   }
 }
 
+/** A request body key, with the provenance normalise/ needs to caveat it. */
+export interface RequestBodyKey {
+  /** The hash, or null when the request had no body at all. */
+  key: string | null;
+  /**
+   * false when the body did not parse as JSON and the key is therefore a hash
+   * of raw text. Keys like that only match byte-identical bodies, so duplicate
+   * detection under-reports for them.
+   */
+  fromJson: boolean;
+}
+
+/**
+ * Key a request body and say how it was keyed, parsing only once.
+ *
+ * A request with no body at all gets a null key and never compares equal to
+ * anything.
+ */
+export function keyRequestBody(body: string | null): RequestBodyKey {
+  if (body === null) return { key: null, fromJson: false };
+  try {
+    const canonical = stableStringify(JSON.parse(body) as unknown);
+    return { key: fnv1a64(canonical), fromJson: true };
+  } catch {
+    return { key: fnv1a64(body), fromJson: false };
+  }
+}
+
 /**
  * The stable key for a request body, or null when the request had no body.
  *
@@ -97,6 +129,5 @@ export function canonicaliseBody(body: string): string {
  * reports — that is what the URL and path are for.
  */
 export function requestBodyKey(body: string | null): string | null {
-  if (body === null) return null;
-  return fnv1a64(canonicaliseBody(body));
+  return keyRequestBody(body).key;
 }

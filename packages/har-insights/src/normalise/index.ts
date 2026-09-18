@@ -1,4 +1,5 @@
-export { canonicaliseBody, requestBodyKey } from "./canonicalise.js";
+export type { RequestBodyKey } from "./canonicalise.js";
+export { canonicaliseBody, keyRequestBody, requestBodyKey } from "./canonicalise.js";
 export { fnv1a64 } from "./hash.js";
 export { normaliseHar } from "./normalise.js";
 export type {
