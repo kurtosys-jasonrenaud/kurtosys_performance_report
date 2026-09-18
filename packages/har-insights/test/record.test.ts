@@ -158,9 +158,13 @@ describe("run record metadata", () => {
     expect(() =>
       finaliseRunRecord(core, { ...METADATA, client: "   " }),
     ).toThrow(MissingMetadataError);
-    expect(() => finaliseRunRecord(core, { ...METADATA, ticket: "" })).toThrow(
-      /ticket/,
+    expect(() => finaliseRunRecord(core, { ...METADATA, journey: "" })).toThrow(
+      /journey/,
     );
+
+    // Ticket is deliberately NOT required: investigations regularly start
+    // before anyone has raised one, and refusing the record loses the capture.
+    expect(() => finaliseRunRecord(core, { ...METADATA, ticket: "" })).not.toThrow();
   });
 
   it("carries both version stamps and every detector version", () => {
@@ -168,8 +172,9 @@ describe("run record metadata", () => {
 
     expect(built.schemaVersion).toBe(SCHEMA_VERSION);
     expect(built.analyzerVersion).toBe(ANALYZER_VERSION);
-    expect(built.detectorVersions["concurrency-ceiling"]).toBe(2);
-    expect(built.detectorVersions["duplicate-payload-within-page"]).toBe(1);
+    expect(built.detectorVersions["max-in-flight"]).toBe(1);
+    expect(built.detectorVersions["pool-saturation"]).toBe(1);
+    expect(built.detectorVersions["duplicate-payload-within-page"]).toBe(2);
   });
 });
 

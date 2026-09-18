@@ -12,8 +12,12 @@ import type { Diagnostic } from "../diagnostics.js";
  *    comparison: workload carries the confounders that decide whether two runs
  *    can be compared at all, and route is how journeys are aligned, since page
  *    refs are not stable between captures.
+ * 4: concurrency became maxInFlight, split into a network figure and an
+ *    all-requests figure, with a per-path table and a call count beside every
+ *    maximum. Added poolSaturation. The old single number was dominated by
+ *    cache reads and answered nothing anyone asked.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /**
  * Version of the COMPUTATION as a whole. Bumped when the meaning of the derived
@@ -39,6 +43,7 @@ export interface RunMetadata {
   client: string;
   environment: string;
   build: string;
+  /** Optional: an investigation often starts before a ticket exists. */
   ticket: string;
   /** What the person was doing — "log in, open dashboard, filter documents". */
   journey: string;
@@ -112,7 +117,8 @@ export interface RunRecordCore {
   capture: RunRecordCapture;
   diagnostics: Diagnostic[];
   endpoints: Record<string, unknown>[];
-  concurrency: Record<string, unknown>;
+  maxInFlight: Record<string, unknown>;
+  poolSaturation: Record<string, unknown>;
   pages: Record<string, unknown>[];
   findings: RunRecordFinding[];
 }

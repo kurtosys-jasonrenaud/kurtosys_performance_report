@@ -51,6 +51,7 @@ const EVIDENCE_ALLOWLIST: Record<string, EvidenceSpec> = {
       "totalCalls",
       "redundantCalls",
       "largestGroupCalls",
+      "responseClass",
     ],
     arrays: {
       groups: [
@@ -61,6 +62,12 @@ const EVIDENCE_ALLOWLIST: Record<string, EvidenceSpec> = {
         "sourceIndexes",
         "durationsMs",
       ],
+    },
+  },
+  "pool-saturation": {
+    keys: ["path", "calls", "maxInFlight", "saturationEvents", "withinMs"],
+    arrays: {
+      events: ["entryIndex", "sourceIndex", "gapMs", "inFlight", "atOffsetMs"],
     },
   },
 };
@@ -84,23 +91,34 @@ const ENDPOINT_KEYS = [
   "methods",
 ] as const;
 
-const CONCURRENCY_KEYS = [
+/** Every maximum is recorded with the call count it was drawn from. */
+const IN_FLIGHT_SCOPE_KEYS = [
   "maxInFlight",
+  "requests",
   "peakAtOffsetMs",
-  "consideredEntries",
-  "excludedUnknownDuration",
-  "excludedZeroDuration",
+  "peakEntryIndices",
 ] as const;
 
-const CONCURRENCY_PAGE_KEYS = [
+const IN_FLIGHT_PATH_KEYS = [
+  "path",
+  "calls",
+  "maxInFlight",
+  "networkCalls",
+  "cachedCalls",
+  "source",
+] as const;
+
+const IN_FLIGHT_PAGE_KEYS = [
   "pageRef",
   "route",
+  "requests",
   "maxInFlight",
+  "maxInFlightNetwork",
+  "networkRequests",
   "peakAtOffsetMs",
-  "consideredEntries",
-  "excludedUnknownDuration",
-  "excludedZeroDuration",
 ] as const;
+
+const SATURATION_KEYS = ["totalEvents", "pathsSaturated", "withinMs"] as const;
 
 function pick(
   source: Record<string, unknown> | undefined,
@@ -162,15 +180,15 @@ export function buildRunRecordCore(
 ): RunRecordCore {
   const routeOf = buildRouteLookup(model.pages);
   const rollup = detectors.metrics["endpoint-rollup"];
-  const concurrency = detectors.metrics["concurrency-ceiling"];
+  const inFlight = detectors.metrics["max-in-flight"];
+  const saturation = detectors.metrics["pool-saturation"];
 
   const endpointRows = Array.isArray(rollup?.["endpoints"])
     ? (rollup["endpoints"] as Record<string, unknown>[])
     : [];
 
-  const concurrencyPages = Array.isArray(concurrency?.["perPage"])
-    ? (concurrency["perPage"] as Record<string, unknown>[])
-    : [];
+  const asRows = (value: unknown): Record<string, unknown>[] =>
+    Array.isArray(value) ? (value as Record<string, unknown>[]) : [];
 
   const findings: RunRecordFinding[] = detectors.findings.map((finding) => {
     const { evidence, omitted } = pickEvidence(finding);
@@ -207,10 +225,20 @@ export function buildRunRecordCore(
     },
     diagnostics: model.diagnostics.map((one) => ({ ...one })),
     endpoints: endpointRows.map((row) => pick(row, ENDPOINT_KEYS)),
-    concurrency: {
-      ...pick(concurrency, CONCURRENCY_KEYS),
-      perPage: concurrencyPages.map((row) => pick(row, CONCURRENCY_PAGE_KEYS)),
+    maxInFlight: {
+      // The transport figure leads. The all-requests figure is kept because it
+      // is occasionally the question, never because it is usually the answer.
+      network: pick(inFlight?.["network"] as Record<string, unknown>, IN_FLIGHT_SCOPE_KEYS),
+      allRequests: pick(
+        inFlight?.["allRequests"] as Record<string, unknown>,
+        IN_FLIGHT_SCOPE_KEYS,
+      ),
+      excludedUnknownDuration: inFlight?.["excludedUnknownDuration"] ?? 0,
+      excludedZeroDuration: inFlight?.["excludedZeroDuration"] ?? 0,
+      byPath: asRows(inFlight?.["byPath"]).map((row) => pick(row, IN_FLIGHT_PATH_KEYS)),
+      perPage: asRows(inFlight?.["perPage"]).map((row) => pick(row, IN_FLIGHT_PAGE_KEYS)),
     },
+    poolSaturation: pick(saturation, SATURATION_KEYS),
     pages: model.pages.map((page) => ({
       pageRef: page.pageRef,
       // The route, not the title. Journeys are aligned on route because page
@@ -247,11 +275,17 @@ export class MissingMetadataError extends Error {
   }
 }
 
+/**
+ * What a record cannot be written without.
+ *
+ * Ticket is deliberately absent: plenty of investigations start before anyone
+ * has raised one, and refusing to record a capture because it has no ticket
+ * number loses the capture, which is worse.
+ */
 const REQUIRED_METADATA = [
   "client",
   "environment",
   "build",
-  "ticket",
   "journey",
   "recordedAt",
 ] as const;

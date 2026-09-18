@@ -22,6 +22,8 @@ type Status =
 interface MetadataForm {
   client: string;
   environment: string;
+  /** Used only when environment is "other". */
+  environmentOther: string;
   build: string;
   ticket: string;
   journey: string;
@@ -31,15 +33,30 @@ interface MetadataForm {
   notes: string;
 }
 
+/** Today, as yyyy-mm-dd in local time. */
+function today(): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate());
+}
+
+const ENVIRONMENTS = ["development", "staging", "production", "other"] as const;
+
+/**
+ * Sensible starting points, so the common case is a glance rather than typing.
+ * Build and as-at both default to today because that is what they usually are
+ * when somebody is capturing right now.
+ */
 const EMPTY_FORM: MetadataForm = {
   client: "",
-  environment: "",
-  build: "",
+  environment: "production",
+  environmentOther: "",
+  build: today(),
   ticket: "",
-  journey: "",
+  journey: "full site investigation",
   accountCount: "",
   emulated: "",
-  asOfDate: "",
+  asOfDate: today(),
   notes: "",
 };
 
@@ -144,7 +161,8 @@ export default function App(): ReactElement {
   const metadata = useMemo<RunMetadata>(
     () => ({
       client: form.client,
-      environment: form.environment,
+      environment:
+        form.environment === "other" ? form.environmentOther : form.environment,
       build: form.build,
       ticket: form.ticket,
       journey: form.journey,
@@ -349,12 +367,22 @@ function MetadataPanel(props: {
   onVerify: (file: File) => void;
 }): ReactElement {
   const { form, onChange } = props;
-  const field = (name: keyof MetadataForm, label: string, placeholder: string) => (
+
+  const field = (
+    name: keyof MetadataForm,
+    label: string,
+    placeholder: string,
+    required: boolean,
+  ) => (
     <label key={name}>
-      <span>{label}</span>
+      <span>
+        {label}
+        {required ? <em className="required"> required</em> : <em className="optional"> optional</em>}
+      </span>
       <input
         value={form[name]}
         placeholder={placeholder}
+        aria-required={required}
         onChange={(event) => onChange({ ...form, [name]: event.target.value })}
       />
     </label>
@@ -365,19 +393,38 @@ function MetadataPanel(props: {
       <h2>Run record details</h2>
       <p className="muted">
         A capture cannot tell us any of this, and a record without it is worthless in six
-        months — we would not know whose system it was or what was being done. All of these
-        are required.
+        months — we would not know whose system it was or what was being done. Client,
+        environment, build and journey are required; everything else helps and can wait.
       </p>
       <div className="fields">
-        {field("client", "Client", "Example Client")}
-        {field("environment", "Environment", "production")}
-        {field("build", "Build", "2026.09.17-1")}
-        {field("ticket", "Ticket", "HV-1512")}
-        {field("journey", "Journey", "log in, open dashboard, filter documents")}
-        {field("accountCount", "Account count", "we cannot derive this")}
-        {field("emulated", "Emulated session", "yes or no")}
-        {field("asOfDate", "As-at date", "2026-08-31")}
-        {field("notes", "Notes (optional)", "anything worth remembering")}
+        {field("client", "Client", "Example Client", true)}
+
+        <label>
+          <span>
+            Environment<em className="required"> required</em>
+          </span>
+          <select
+            value={form.environment}
+            onChange={(event) => onChange({ ...form, environment: event.target.value })}
+          >
+            {ENVIRONMENTS.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {form.environment === "other" &&
+          field("environmentOther", "Which environment", "name it", true)}
+
+        {field("build", "Build", today(), true)}
+        {field("journey", "Journey", "full site investigation", true)}
+        {field("ticket", "Ticket", "HV-1512", false)}
+        {field("accountCount", "Account count", "we cannot derive this", false)}
+        {field("emulated", "Emulated session", "yes or no", false)}
+        {field("asOfDate", "As-at date", today(), false)}
+        {field("notes", "Notes", "anything worth remembering", false)}
       </div>
 
       <div className="actions">
@@ -476,7 +523,7 @@ function Report({ model }: { model: ReportModel }): ReactElement {
       <Diagnostics model={model} />
       <Endpoints model={model} />
       <Pages model={model} />
-      <Concurrency model={model} />
+      <MaxInFlight model={model} />
       <Findings model={model} />
     </>
   );
@@ -645,42 +692,99 @@ function Pages({ model }: { model: ReportModel }): ReactElement {
   );
 }
 
-function Concurrency({ model }: { model: ReportModel }): ReactElement {
-  const c = model.concurrency;
+function MaxInFlight({ model }: { model: ReportModel }): ReactElement {
+  const f = model.inFlight;
+  const busiest = f.byPath.filter((row) => row.maxInFlight > 1).slice(0, 25);
+
   return (
     <section className="panel">
-      <h2>Concurrency</h2>
+      <h2>Maximum observed in flight</h2>
+      <p className="muted">
+        How many requests were open at the same moment. It is what we observed, not a limit
+        anyone declared — sometimes those are the same number and sometimes they are not.
+        Every maximum is shown with the number of calls it came from, because a maximum of 6
+        across 21 calls and a maximum of 2 across 3 calls are not the same kind of fact.
+      </p>
       <dl className="summary">
-        <Stat label="Max in flight" value={count(c.maxInFlight)} />
-        <Stat label="Peak at" value={optionalMs(c.peakAtOffsetMs)} />
-        <Stat label="Requests swept" value={count(c.consideredEntries)} />
-        <Stat label="Excluded, unknown duration" value={count(c.excludedUnknownDuration)} />
-        <Stat label="Excluded, zero duration" value={count(c.excludedZeroDuration)} />
+        <Stat
+          label="Network requests"
+          value={count(f.network.maxInFlight) + " of " + count(f.network.requests)}
+        />
+        <Stat label="Peak at" value={optionalMs(f.network.peakAtOffsetMs)} />
+        <Stat
+          label="All requests, cache included"
+          value={count(f.allRequests.maxInFlight) + " of " + count(f.allRequests.requests)}
+        />
+        <Stat label="Excluded, unknown duration" value={count(f.excludedUnknownDuration)} />
+        <Stat label="Excluded, zero duration" value={count(f.excludedZeroDuration)} />
       </dl>
       <p className="muted small">
-        An observed ceiling is a measurement, not a problem. Requests that started and
-        finished inside the same millisecond occupy no interval and are counted separately
-        rather than swept.
+        The network figure leads because cache hits are not competing for a connection. The
+        all-requests figure counts them, which is why it runs higher and answers less.
+      </p>
+
+      <h3>By path</h3>
+      <p className="muted small">
+        Whatever hands out slots only shows itself among requests that share one, and
+        requests sharing a path are the closest thing to that we can know without a client
+        profile. Paths called once are omitted.
       </p>
       <div className="table-scroll">
         <table>
           <thead>
             <tr>
-              <th>Route</th>
+              <th>Path</th>
+              <th className="num">Calls</th>
               <th className="num">Max in flight</th>
-              <th className="num">Peak at</th>
-              <th className="num">Swept</th>
+              <th>Source</th>
             </tr>
           </thead>
           <tbody>
-            {c.perPage.map((row) => (
+            {busiest.map((row) => (
+              <tr key={row.path}>
+                <td className="path">{row.path}</td>
+                <td className="num">{count(row.calls)}</td>
+                <td className="num">
+                  <strong>{count(row.maxInFlight)}</strong>
+                </td>
+                <td>
+                  {row.source}
+                  {row.source === "mixed" && (
+                    <span className="muted small">
+                      {" "}
+                      {row.networkCalls} network, {row.cachedCalls} cached
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h3>By page</h3>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Route</th>
+              <th className="num">Requests</th>
+              <th className="num">Max, network</th>
+              <th className="num">Max, all</th>
+            </tr>
+          </thead>
+          <tbody>
+            {f.perPage.map((row) => (
               <tr key={row.pageRef}>
                 <td className="path">
                   {row.route} <span className="muted small">{row.pageRef}</span>
                 </td>
+                <td className="num">{count(row.requests)}</td>
+                <td className="num">
+                  {count(row.maxInFlightNetwork)}{" "}
+                  <span className="muted small">of {count(row.networkRequests)}</span>
+                </td>
                 <td className="num">{count(row.maxInFlight)}</td>
-                <td className="num">{optionalMs(row.peakAtOffsetMs)}</td>
-                <td className="num">{count(row.consideredEntries)}</td>
               </tr>
             ))}
           </tbody>
@@ -691,39 +795,77 @@ function Concurrency({ model }: { model: ReportModel }): ReactElement {
 }
 
 function Findings({ model }: { model: ReportModel }): ReactElement {
-  const byDetector = new Map<string, typeof model.findings>();
-  for (const finding of model.findings) {
-    const group = byDetector.get(finding.detectorId);
-    if (group) group.push(finding);
-    else byDetector.set(finding.detectorId, [finding]);
-  }
+  const duplicates = model.findings.filter(
+    (f) => f.detectorId === "duplicate-payload-within-page",
+  );
+  const dataDuplicates = duplicates.filter((f) => f.evidence["responseClass"] === "data");
+  const assetDuplicates = duplicates.filter((f) => f.evidence["responseClass"] !== "data");
+  const saturation = model.findings.filter((f) => f.detectorId === "pool-saturation");
+  const rest = model.findings.filter(
+    (f) =>
+      f.detectorId !== "duplicate-payload-within-page" &&
+      f.detectorId !== "pool-saturation",
+  );
 
   return (
     <section className="panel">
       <h2>Findings</h2>
-      {model.findings.length === 0 ? (
+      {model.findings.length === 0 && (
         <p className="note">No findings. That is a measurement, not a verdict.</p>
-      ) : (
-        [...byDetector.entries()].map(([detectorId, findings]) => (
-          <div key={detectorId} className="detector">
-            <h3>
-              {detectorId}{" "}
-              <span className="muted small">v{model.detectorVersions[detectorId]}</span>
-            </h3>
-            {findings.map((finding) => (
-              <article key={finding.key} className={"finding severity-" + finding.severity}>
-                <header>
-                  <span className="badge">{finding.severity}</span>
-                  <p className="summary">{finding.summary}</p>
-                </header>
-                <p className="key">{finding.key}</p>
-                <Evidence evidence={finding.evidence} />
-              </article>
-            ))}
-          </div>
-        ))
       )}
+
+      <FindingGroup
+        title="Repeated data requests"
+        findings={dataDuplicates}
+        model={model}
+        note="Identical API calls issued more than once within one page. An API call issued six times is work the system did not need to do."
+      />
+      <FindingGroup
+        title="Requests starting as slots free"
+        findings={saturation}
+        model={model}
+        note="A request beginning the instant another on the same path completed, while that path was already at its observed maximum. A maximum reached once may be coincidence; a maximum reached repeatedly as slots free is something handing work out in batches."
+      />
+      <FindingGroup
+        title="Repeated assets"
+        findings={assetDuplicates}
+        model={model}
+        note="Scripts, stylesheets, images and fonts requested more than once within a page. Usually harmless, listed apart so it does not bury the rest."
+      />
+      <FindingGroup title="Other" findings={rest} model={model} note="" />
     </section>
+  );
+}
+
+function FindingGroup({
+  title, findings, model, note,
+}: {
+  title: string;
+  findings: ReportModel["findings"];
+  model: ReportModel;
+  note: string;
+}): ReactElement | null {
+  if (findings.length === 0) return null;
+  const detectorId = findings[0]?.detectorId ?? "";
+
+  return (
+    <div className="detector">
+      <h3>
+        {title} <span className="muted small">{findings.length}</span>
+        <span className="muted small"> · {detectorId} v{model.detectorVersions[detectorId]}</span>
+      </h3>
+      {note !== "" && <p className="muted small">{note}</p>}
+      {findings.map((finding) => (
+        <article key={finding.key} className={"finding severity-" + finding.severity}>
+          <header>
+            <span className="badge">{finding.severity}</span>
+            <p className="summary">{finding.summary}</p>
+          </header>
+          <p className="key">{finding.key}</p>
+          <Evidence evidence={finding.evidence} />
+        </article>
+      ))}
+    </div>
   );
 }
 

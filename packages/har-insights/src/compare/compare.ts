@@ -423,8 +423,14 @@ function captureDeltas(
 ): MetricDelta[] {
   const a = before.capture;
   const b = after.capture;
-  const concurrency = (record: RunRecord): number =>
-    Number(record.concurrency?.["maxInFlight"] ?? 0);
+  // The network figure, not the all-requests one: cache reads are not
+  // competing for a connection and swamp the number that matters.
+  const networkInFlight = (record: RunRecord): number =>
+    Number(
+      (record.maxInFlight?.["network"] as Record<string, unknown> | undefined)?.[
+        "maxInFlight"
+      ] ?? 0,
+    );
 
   return [
     structural("entries", a.entryCount, b.entryCount),
@@ -432,9 +438,9 @@ function captureDeltas(
     structural("transferred", a.totalTransferBytes, b.totalTransferBytes),
     structural("uncompressed", a.totalContentBytes, b.totalContentBytes),
     structural("unpaged entries", a.unpagedEntryCount, b.unpagedEntryCount),
-    // A concurrency ceiling is a property of the code and the pool it uses, not
-    // of how fast anything ran, so it compares like a count.
-    structural("max in flight", concurrency(before), concurrency(after)),
+    // How many were open at once is a property of the code and whatever hands
+    // out the slots, not of how fast anything ran, so it compares like a count.
+    structural("max in flight, network", networkInFlight(before), networkInFlight(after)),
     duration("capture window", a.windowMs, b.windowMs, 1, durationsComparable),
   ];
 }

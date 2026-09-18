@@ -10,8 +10,9 @@ import {
 } from "@kurtosys/har-insights";
 import type {
   AnalyseRequest,
-  ConcurrencySummary,
   EndpointRow,
+  InFlightSummary,
+  SaturationSummary,
   PageRow,
   ReportModel,
   WorkerMessage,
@@ -116,8 +117,9 @@ function buildReportModel(
   const rollup = detectors.metrics["endpoint-rollup"];
   const endpoints = (rollup?.["endpoints"] as EndpointRow[] | undefined) ?? [];
 
-  const concurrency = (detectors.metrics["concurrency-ceiling"] ??
-    {}) as unknown as ConcurrencySummary;
+  const inFlight = (detectors.metrics["max-in-flight"] ?? {}) as unknown as InFlightSummary;
+  const saturation = (detectors.metrics["pool-saturation"] ??
+    {}) as unknown as SaturationSummary;
 
   return {
     fileName: file.name,
@@ -127,7 +129,8 @@ function buildReportModel(
     diagnostics: [...model.diagnostics],
     pages,
     endpoints,
-    concurrency,
+    inFlight,
+    saturation,
     findings: [...detectors.findings],
     detectorVersions: detectors.detectorVersions,
     recordCore,

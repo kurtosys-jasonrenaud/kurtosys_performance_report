@@ -271,9 +271,10 @@ function describeCapture({ expectations, capturePath }: GoldenCase): void {
 
     if (want.concurrency?.globalMaxInFlight !== undefined) {
       it("observed global concurrency ceiling", () => {
-        expect(detectors.metrics["concurrency-ceiling"]?.["maxInFlight"]).toBe(
-          want.concurrency?.globalMaxInFlight,
-        );
+        const network = detectors.metrics["max-in-flight"]?.["network"] as
+          | { maxInFlight: number }
+          | undefined;
+        expect(network?.maxInFlight).toBe(want.concurrency?.globalMaxInFlight);
       });
     }
 

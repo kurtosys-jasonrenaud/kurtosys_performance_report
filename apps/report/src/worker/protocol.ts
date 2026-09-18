@@ -64,24 +64,48 @@ export interface EndpointRow {
   methods: Record<string, number>;
 }
 
-export interface ConcurrencyPageRow {
-  pageRef: string;
-  route: string;
+/** A maximum is always reported with the call count it was drawn from. */
+export interface InFlightScope {
   maxInFlight: number;
-  peakAtOffsetMs: number | null;
-  consideredEntries: number;
-  excludedUnknownDuration: number;
-  excludedZeroDuration: number;
-}
-
-export interface ConcurrencySummary {
-  maxInFlight: number;
+  requests: number;
   peakAtOffsetMs: number | null;
   peakEntryIndices: number[];
-  consideredEntries: number;
+}
+
+export interface InFlightPathRow {
+  path: string;
+  calls: number;
+  maxInFlight: number;
+  networkCalls: number;
+  cachedCalls: number;
+  source: "network" | "cache" | "mixed";
+}
+
+export interface InFlightPageRow {
+  pageRef: string;
+  route: string;
+  requests: number;
+  maxInFlight: number;
+  maxInFlightNetwork: number;
+  networkRequests: number;
+  peakAtOffsetMs: number | null;
+}
+
+export interface InFlightSummary {
+  /** Requests that used the network. The transport figure, and the headline. */
+  network: InFlightScope;
+  /** Everything, cache hits included. Kept available, not led with. */
+  allRequests: InFlightScope;
   excludedUnknownDuration: number;
   excludedZeroDuration: number;
-  perPage: ConcurrencyPageRow[];
+  byPath: InFlightPathRow[];
+  perPage: InFlightPageRow[];
+}
+
+export interface SaturationSummary {
+  totalEvents: number;
+  pathsSaturated: number;
+  withinMs: number;
 }
 
 export interface Timings {
@@ -106,7 +130,8 @@ export interface ReportModel {
   diagnostics: Diagnostic[];
   pages: PageRow[];
   endpoints: EndpointRow[];
-  concurrency: ConcurrencySummary;
+  inFlight: InFlightSummary;
+  saturation: SaturationSummary;
   findings: Finding[];
   detectorVersions: Record<string, number>;
   /** Derived half of the run record. Metadata is added on the page. */

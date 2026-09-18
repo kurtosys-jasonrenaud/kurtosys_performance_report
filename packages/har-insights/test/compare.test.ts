@@ -172,7 +172,7 @@ describe("structural and duration are different kinds of fact", () => {
 
     expect(kinds["entries"]).toBe("structural");
     expect(kinds["transferred"]).toBe("structural");
-    expect(kinds["max in flight"]).toBe("structural");
+    expect(kinds["max in flight, network"]).toBe("structural");
     expect(kinds["capture window"]).toBe("duration");
   });
 });

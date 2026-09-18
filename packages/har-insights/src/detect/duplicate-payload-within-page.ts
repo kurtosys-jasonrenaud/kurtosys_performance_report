@@ -9,7 +9,7 @@ import type {
 } from "./types.js";
 
 const ID = "duplicate-payload-within-page";
-const VERSION = 1;
+const VERSION = 2;
 
 /**
  * Separator for composite map keys. A vertical bar cannot appear in an HTTP
@@ -18,6 +18,38 @@ const VERSION = 1;
  */
 const SEP = "|";
 
+/**
+ * What kind of response the repeated request produced.
+ *
+ * An asset fetched twice on a page is usually harmless — a bundler quirk, a
+ * preload that did not take. An API call issued six times is work the system
+ * did not need to do. Presenting both in one list buries the second under the
+ * first, so the class travels with the finding and the two are reported apart.
+ *
+ * Taken from the response mime type, which is in every capture and needs no
+ * client profile to interpret.
+ */
+export type ResponseClass = "data" | "asset" | "other";
+
+function classifyResponse(mimeType: string): ResponseClass {
+  const type = mimeType.toLowerCase();
+  if (type.includes("json")) return "data";
+  if (
+    type.includes("javascript") ||
+    type.includes("ecmascript") ||
+    type.includes("css") ||
+    type.startsWith("image/") ||
+    type.startsWith("font/") ||
+    type.startsWith("video/") ||
+    type.startsWith("audio/") ||
+    type.includes("woff") ||
+    type.includes("font")
+  ) {
+    return "asset";
+  }
+  return "other";
+}
+
 interface PayloadGroup {
   /** Hash of url plus body key. Identifies the group without quoting either. */
   requestHash: string;
@@ -25,6 +57,7 @@ interface PayloadGroup {
   entryIndices: number[];
   sourceIndexes: number[];
   durationsMs: (number | null)[];
+  mimeTypes: string[];
 }
 
 interface EndpointGroup {
@@ -80,11 +113,13 @@ function run(context: DetectorContext): DetectorResult {
         entryIndices: [entry.index],
         sourceIndexes: [entry.sourceIndex],
         durationsMs: [entry.durationMs],
+        mimeTypes: [entry.mimeType],
       });
     } else {
       payload.entryIndices.push(entry.index);
       payload.sourceIndexes.push(entry.sourceIndex);
       payload.durationsMs.push(entry.durationMs);
+      payload.mimeTypes.push(entry.mimeType);
     }
   }
 
@@ -107,15 +142,18 @@ function run(context: DetectorContext): DetectorResult {
       }
     }
 
+    const responseClass = dominantClass(repeated);
+
     findings.push({
       detectorId: ID,
       detectorVersion: VERSION,
       key: buildKey(endpoint),
-      severity: severityForCount(largestGroup),
+      severity: severityFor(largestGroup, responseClass),
       summary: summarise(endpoint, repeated, largestGroup),
       evidence: {
         method: endpoint.method,
         path: endpoint.path,
+        responseClass,
         pageRoute: endpoint.route,
         pageRef: endpoint.pageRef,
         duplicatedPayloads: repeated.length,
@@ -153,7 +191,31 @@ function buildKey(endpoint: EndpointGroup): string {
   return ID + ":" + endpoint.method + ":" + endpoint.path + ":" + endpoint.route;
 }
 
-function severityForCount(calls: number): FindingSeverity {
+/**
+ * The class of the responses this endpoint returned, across every repeated
+ * payload on it. Data wins a tie: an endpoint that answers in JSON some of the
+ * time is an API call some of the time.
+ */
+function dominantClass(repeated: PayloadGroup[]): ResponseClass {
+  const counts: Record<ResponseClass, number> = { data: 0, asset: 0, other: 0 };
+  for (const payload of repeated) {
+    for (const mimeType of payload.mimeTypes) counts[classifyResponse(mimeType)]++;
+  }
+  if (counts.data > 0 && counts.data >= counts.asset && counts.data >= counts.other) {
+    return "data";
+  }
+  return counts.asset >= counts.other ? "asset" : "other";
+}
+
+/**
+ * Severity from the repeat count for data, held at low for everything else.
+ *
+ * A stylesheet fetched six times is odd; six identical API calls is work that
+ * did not need doing. The count is still in the evidence either way, so nothing
+ * is hidden — only ranked.
+ */
+function severityFor(calls: number, responseClass: ResponseClass): FindingSeverity {
+  if (responseClass !== "data") return "low";
   if (calls >= 6) return "high";
   if (calls >= 3) return "medium";
   return "low";

@@ -239,3 +239,14 @@ tbody tr:hover { background: #fbfcfe; }
 
 tr.presence-changed { background: #fbfaff; }
 td.presence { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--medium); font-weight: 600; }
+
+/* required and optional markers on form labels */
+.fields span em { font-style: normal; font-weight: 600; font-size: 10px; letter-spacing: 0.03em;
+                  text-transform: uppercase; margin-left: 6px; }
+.fields span em.required { color: var(--high); }
+.fields span em.optional { color: var(--ink-soft); font-weight: 500; }
+.fields select {
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px;
+  font: inherit; background: #fff; color: var(--ink);
+}
+.fields select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }

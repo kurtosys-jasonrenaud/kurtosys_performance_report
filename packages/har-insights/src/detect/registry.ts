@@ -1,4 +1,5 @@
-import { concurrencyCeiling } from "./concurrency-ceiling.js";
+import { maxInFlight } from "./max-in-flight.js";
+import { poolSaturation } from "./pool-saturation.js";
 import { duplicatePayloadWithinPage } from "./duplicate-payload-within-page.js";
 import { endpointRollup } from "./endpoint-rollup.js";
 import type { DetectorContext, DetectorSpec, Finding } from "./types.js";
@@ -12,7 +13,8 @@ import type { DetectorContext, DetectorSpec, Finding } from "./types.js";
  */
 export const allDetectors: readonly DetectorSpec[] = [
   duplicatePayloadWithinPage,
-  concurrencyCeiling,
+  maxInFlight,
+  poolSaturation,
   endpointRollup,
 ];
 
