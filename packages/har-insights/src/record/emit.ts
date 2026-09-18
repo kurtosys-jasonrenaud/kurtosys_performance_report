@@ -1,3 +1,4 @@
+import { buildRouteLookup } from "../detect/page-route.js";
 import type { DetectorRunResult } from "../detect/registry.js";
 import type { NormaliseResult } from "../normalise/types.js";
 import type {
@@ -5,6 +6,7 @@ import type {
   RunRecord,
   RunRecordCore,
   RunRecordFinding,
+  RunWorkload,
 } from "./types.js";
 import { ANALYZER_VERSION, SCHEMA_VERSION } from "./types.js";
 
@@ -158,6 +160,7 @@ export function buildRunRecordCore(
   model: NormaliseResult,
   detectors: DetectorRunResult,
 ): RunRecordCore {
+  const routeOf = buildRouteLookup(model.pages);
   const rollup = detectors.metrics["endpoint-rollup"];
   const concurrency = detectors.metrics["concurrency-ceiling"];
 
@@ -210,6 +213,10 @@ export function buildRunRecordCore(
     },
     pages: model.pages.map((page) => ({
       pageRef: page.pageRef,
+      // The route, not the title. Journeys are aligned on route because page
+      // refs are not stable between captures; the title is the page URL with
+      // its query string, which is where a session token lives.
+      route: routeOf(page.pageRef),
       startedAt: page.startedAt,
       onContentLoadMs: page.onContentLoadMs,
       onLoadMs: page.onLoadMs,
@@ -253,6 +260,7 @@ const REQUIRED_METADATA = [
 export function finaliseRunRecord(
   core: RunRecordCore,
   metadata: RunMetadata,
+  workload: RunWorkload = { accountCount: null, emulated: null, asOfDate: null },
 ): RunRecord {
   const missing = REQUIRED_METADATA.filter(
     (field) => typeof metadata[field] !== "string" || metadata[field].trim() === "",
@@ -267,14 +275,11 @@ export function finaliseRunRecord(
     journey: metadata.journey.trim(),
     recordedAt: metadata.recordedAt,
   };
-  if (typeof metadata.accountCount === "number") {
-    cleaned.accountCount = metadata.accountCount;
-  }
   if (typeof metadata.notes === "string" && metadata.notes.trim() !== "") {
     cleaned.notes = metadata.notes.trim();
   }
 
-  return { ...core, metadata: cleaned };
+  return { ...core, metadata: cleaned, workload };
 }
 
 /** Convenience for callers holding both halves. */
@@ -282,6 +287,7 @@ export function buildRunRecord(
   model: NormaliseResult,
   detectors: DetectorRunResult,
   metadata: RunMetadata,
+  workload?: RunWorkload,
 ): RunRecord {
-  return finaliseRunRecord(buildRunRecordCore(model, detectors), metadata);
+  return finaliseRunRecord(buildRunRecordCore(model, detectors), metadata, workload);
 }

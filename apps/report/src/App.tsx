@@ -2,10 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, ReactElement } from "react";
 import {
   MissingMetadataError,
+  compareRuns,
   finaliseRunRecord,
+  type ComparisonResult,
   type RunMetadata,
   type RunRecord,
+  type RunWorkload,
 } from "@kurtosys/har-insights";
+import { Comparison } from "./ui/Comparison.js";
 import type { Phase, ReportModel, WorkerMessage } from "./worker/protocol.js";
 import { bytes, count, ms, optionalMs, statusSummary } from "./ui/format.js";
 
@@ -22,6 +26,8 @@ interface MetadataForm {
   ticket: string;
   journey: string;
   accountCount: string;
+  emulated: string;
+  asOfDate: string;
   notes: string;
 }
 
@@ -32,6 +38,8 @@ const EMPTY_FORM: MetadataForm = {
   ticket: "",
   journey: "",
   accountCount: "",
+  emulated: "",
+  asOfDate: "",
   notes: "",
 };
 
@@ -49,6 +57,9 @@ export default function App(): ReactElement {
   const [recordError, setRecordError] = useState<string | null>(null);
   const [verification, setVerification] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [beforeRecord, setBeforeRecord] = useState<RunRecord | null>(null);
+  const [afterRecord, setAfterRecord] = useState<RunRecord | null>(null);
+  const [comparisonError, setComparisonError] = useState<string | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const busyRef = useRef(false);
   const lastRecordRef = useRef<RunRecord | null>(null);
@@ -138,10 +149,20 @@ export default function App(): ReactElement {
       ticket: form.ticket,
       journey: form.journey,
       recordedAt: new Date().toISOString(),
-      ...(form.accountCount.trim() === ""
-        ? {}
-        : { accountCount: Number(form.accountCount) }),
       ...(form.notes.trim() === "" ? {} : { notes: form.notes }),
+    }),
+    [form],
+  );
+
+  /**
+   * The confounders. Null means not recorded, which is a different statement
+   * from zero or false and is carried through as such.
+   */
+  const workload = useMemo<RunWorkload>(
+    () => ({
+      accountCount: form.accountCount.trim() === "" ? null : Number(form.accountCount),
+      emulated: form.emulated === "" ? null : form.emulated === "yes",
+      asOfDate: form.asOfDate.trim() === "" ? null : form.asOfDate.trim(),
     }),
     [form],
   );
@@ -151,7 +172,7 @@ export default function App(): ReactElement {
     setRecordError(null);
     setVerification(null);
     try {
-      const record = finaliseRunRecord(model.recordCore, metadata);
+      const record = finaliseRunRecord(model.recordCore, metadata, workload);
       lastRecordRef.current = record;
       const text = JSON.stringify(record, null, 2);
       const blob = new Blob([text], { type: "application/json" });
@@ -174,7 +195,49 @@ export default function App(): ReactElement {
             : String(error),
       );
     }
-  }, [model, metadata]);
+  }, [model, metadata, workload]);
+
+  const loadRecord = useCallback(
+    async (file: File, slot: "before" | "after") => {
+      setComparisonError(null);
+      try {
+        const loaded = JSON.parse(await file.text()) as RunRecord;
+        if (typeof loaded?.schemaVersion !== "number") {
+          throw new Error("That file is not a run record.");
+        }
+        if (slot === "before") setBeforeRecord(loaded);
+        else setAfterRecord(loaded);
+      } catch (error: unknown) {
+        setComparisonError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [],
+  );
+
+  /** Use the capture currently open as the later half of the comparison. */
+  const useCurrentAsAfter = useCallback(() => {
+    if (!model) return;
+    setComparisonError(null);
+    try {
+      setAfterRecord(finaliseRunRecord(model.recordCore, metadata, workload));
+    } catch (error: unknown) {
+      setComparisonError(
+        error instanceof MissingMetadataError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : String(error),
+      );
+    }
+  }, [model, metadata, workload]);
+
+  const comparison = useMemo<ComparisonResult | null>(
+    () =>
+      beforeRecord !== null && afterRecord !== null
+        ? compareRuns(beforeRecord, afterRecord)
+        : null,
+    [beforeRecord, afterRecord],
+  );
 
   /** Read a downloaded record back and check it against the one we emitted. */
   const verifyRecord = useCallback(async (file: File) => {
@@ -260,6 +323,17 @@ export default function App(): ReactElement {
         onVerify={verifyRecord}
       />
 
+      <ComparePanel
+        before={beforeRecord}
+        after={afterRecord}
+        onLoad={loadRecord}
+        onUseCurrent={useCurrentAsAfter}
+        canUseCurrent={model !== null}
+        error={comparisonError}
+      />
+
+      {comparison && <Comparison result={comparison} />}
+
       {model && <Report model={model} />}
     </main>
   );
@@ -300,7 +374,9 @@ function MetadataPanel(props: {
         {field("build", "Build", "2026.09.17-1")}
         {field("ticket", "Ticket", "HV-1512")}
         {field("journey", "Journey", "log in, open dashboard, filter documents")}
-        {field("accountCount", "Account count (optional)", "we cannot derive this")}
+        {field("accountCount", "Account count", "we cannot derive this")}
+        {field("emulated", "Emulated session", "yes or no")}
+        {field("asOfDate", "As-at date", "2026-08-31")}
         {field("notes", "Notes (optional)", "anything worth remembering")}
       </div>
 
@@ -327,6 +403,68 @@ function MetadataPanel(props: {
         </p>
       )}
       {props.verification && <p className="note verification">{props.verification}</p>}
+    </section>
+  );
+}
+
+function ComparePanel(props: {
+  before: RunRecord | null;
+  after: RunRecord | null;
+  onLoad: (file: File, slot: "before" | "after") => void;
+  onUseCurrent: () => void;
+  canUseCurrent: boolean;
+  error: string | null;
+}): ReactElement {
+  const describe = (record: RunRecord | null): string =>
+    record === null
+      ? "nothing loaded"
+      : [record.metadata.client, record.metadata.environment, record.metadata.build]
+          .filter(Boolean)
+          .join(" · ");
+
+  return (
+    <section className="panel">
+      <h2>Compare two runs</h2>
+      <p className="muted">
+        Load a run record for each side. Either can be a file you saved earlier; the later
+        side can also be the capture open right now.
+      </p>
+      <div className="fields">
+        <label>
+          <span>Earlier run — {describe(props.before)}</span>
+          <input
+            type="file"
+            accept=".json"
+            data-testid="record-before"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) props.onLoad(file, "before");
+            }}
+          />
+        </label>
+        <label>
+          <span>Later run — {describe(props.after)}</span>
+          <input
+            type="file"
+            accept=".json"
+            data-testid="record-after"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) props.onLoad(file, "after");
+            }}
+          />
+        </label>
+      </div>
+      <div className="actions">
+        <button type="button" onClick={props.onUseCurrent} disabled={!props.canUseCurrent}>
+          Use the open capture as the later run
+        </button>
+      </div>
+      {props.error && (
+        <p className="error" role="alert">
+          {props.error}
+        </p>
+      )}
     </section>
   );
 }

@@ -8,8 +8,12 @@ import type { Diagnostic } from "../diagnostics.js";
  *    so analyzerVersion stays where it is: no existing value changed meaning,
  *    and a version-1 record remains comparable with a version-2 one on every
  *    field they share.
+ * 3: added the workload block and a route on each page. Both exist for
+ *    comparison: workload carries the confounders that decide whether two runs
+ *    can be compared at all, and route is how journeys are aligned, since page
+ *    refs are not stable between captures.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * Version of the COMPUTATION as a whole. Bumped when the meaning of the derived
@@ -44,9 +48,25 @@ export interface RunMetadata {
    * identical output for identical input.
    */
   recordedAt: string;
-  /** Not derivable from a capture without a client profile. Optional. */
-  accountCount?: number;
   notes?: string;
+}
+
+/**
+ * What the session was doing, as opposed to which system it ran against.
+ *
+ * These are the confounders. A run against 3 accounts and a run against 400 are
+ * not the same measurement however carefully each was taken, and an emulated
+ * session does work a real one does not. None of it is derivable from a capture
+ * without a client profile, so a person supplies it, and a comparison that
+ * cannot see it is a comparison that will quietly mislead.
+ */
+export interface RunWorkload {
+  /** null when unknown rather than 0, which would be a claim. */
+  accountCount: number | null;
+  /** Whether the session was emulating or impersonating another user. */
+  emulated: boolean | null;
+  /** The as-at date the data was requested for, if the journey used one. */
+  asOfDate: string | null;
 }
 
 export interface RunRecordCapture {
@@ -99,4 +119,5 @@ export interface RunRecordCore {
 
 export interface RunRecord extends RunRecordCore {
   metadata: RunMetadata;
+  workload: RunWorkload;
 }

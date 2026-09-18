@@ -210,3 +210,32 @@ tbody tr:hover { background: #fbfcfe; }
   overflow-x: auto;
   max-height: 260px;
 }
+
+/* comparison ----------------------------------------------------------- */
+.confounders { border-color: #f0b4ad; background: #fffaf9; }
+.confounders ul { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.confounders li { display: flex; gap: 10px; padding: 10px 12px; border-radius: 8px; background: #fef3f2; }
+.confounders li.severe { background: #fee4e2; }
+.confounders li p { margin: 0; }
+.confounders .pair { font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.confounders .badge { background: #fff; color: var(--high); }
+
+/* Structural and duration are different kinds of fact, so they do not look
+   alike. Durations are muted and italic; a count is stated plainly. */
+.delta { display: flex; flex-direction: column; gap: 1px; white-space: nowrap; }
+.delta .pair { font-size: 11px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.delta strong { font-size: 13px; font-variant-numeric: tabular-nums; }
+.delta em { font-size: 11px; font-style: italic; color: var(--ink-soft); }
+.delta.structural strong { color: var(--ink); }
+.delta.structural.up strong { color: var(--high); }
+.delta.structural.down strong { color: var(--ok); }
+.delta.duration strong { font-weight: 500; font-style: italic; color: var(--ink-soft); }
+.delta.duration.not-comparable em { color: var(--medium); font-weight: 600; }
+
+.kind { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px; font-size: 9px;
+        text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; vertical-align: middle; }
+.kind.structural { background: #eef1f5; color: var(--low); }
+.kind.duration { background: #fffaeb; color: var(--medium); }
+
+tr.presence-changed { background: #fbfaff; }
+td.presence { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--medium); font-weight: 600; }
