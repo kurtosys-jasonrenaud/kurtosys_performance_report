@@ -1,0 +1,9 @@
+packages:
+  - "packages/*"
+  # apps/* joins in a later phase (browser app, Cloudflare Worker).
+  - "apps/*"
+
+# esbuild ships a platform binary via a postinstall script. It reaches the tree
+# only as a Vitest build-time dependency; the analysis core has no runtime deps.
+allowBuilds:
+  esbuild: true

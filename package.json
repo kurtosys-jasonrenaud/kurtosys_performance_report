@@ -1,0 +1,21 @@
+{
+  "name": "kurtosys-performance-report",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Browser-based HAR analyser for Kurtosys performance investigations",
+  "type": "module",
+  "packageManager": "pnpm@12.4.2",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

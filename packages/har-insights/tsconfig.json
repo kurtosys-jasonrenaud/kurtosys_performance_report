@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "./dist",
+    // types: [] is deliberate. The core package must compile with no ambient
+    // Node or DOM declarations in scope, so that any accidental use of fs,
+    // fetch, Buffer or window is a compile error rather than something that
+    // works on one runtime and fails on another.
+    "types": []
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "test/fixtures"]
+}
