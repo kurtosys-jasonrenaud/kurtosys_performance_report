@@ -100,6 +100,17 @@ export interface VersionGuards {
     readonly before: number | null;
     readonly after: number | null;
   }[];
+  /**
+   * The profiles that labelled each run, and whether they differ.
+   *
+   * A profile cannot change a measurement, so this never invalidates a count.
+   * It does decide what things are called and how they are grouped, so a query
+   * rollup or a pool figure may not line up across the two — and an unlabelled
+   * run has none of it at all.
+   */
+  readonly profileBefore: string | null;
+  readonly profileAfter: string | null;
+  readonly profileMismatch: boolean;
 }
 
 /** A comparison that was refused outright, with the reason. */

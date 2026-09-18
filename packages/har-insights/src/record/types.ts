@@ -16,8 +16,12 @@ import type { Diagnostic } from "../diagnostics.js";
  *    all-requests figure, with a per-path table and a call count beside every
  *    maximum. Added poolSaturation. The old single number was dominated by
  *    cache reads and answered nothing anyone asked.
+ * 5: added everything a client profile contributes — its identity, the query
+ *    rollup, pool figures, business timings and assertion results. All of it is
+ *    additive and all of it is absent when no profile was loaded, so a record
+ *    made without one is still a complete record.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /**
  * Version of the COMPUTATION as a whole. Bumped when the meaning of the derived
@@ -109,10 +113,33 @@ export interface RunRecordFinding {
  * Everything derivable from the capture alone. Built inside the worker, where
  * the bodies are, so that nothing sensitive has to travel to build it later.
  */
+/**
+ * Which profile labelled this run, if any.
+ *
+ * Recorded so two runs can be compared knowingly. A profile cannot change a
+ * measurement, but it decides what things are called and how they are grouped,
+ * and comparing a labelled run against an unlabelled one — or against one
+ * labelled differently — is a comparison somebody should be told about.
+ */
+export interface RunRecordProfile {
+  id: string;
+  name: string;
+  version: number;
+  /** Whether the profile's host list matched the capture. */
+  matched: boolean;
+}
+
 export interface RunRecordCore {
   schemaVersion: number;
   analyzerVersion: number;
   detectorVersions: Record<string, number>;
+  /** null when the capture was analysed without a profile. */
+  profile: RunRecordProfile | null;
+  /** Profile-derived. Empty without one. */
+  queries: Record<string, unknown>[];
+  pools: Record<string, unknown>[];
+  business: Record<string, unknown>;
+  assertions: Record<string, unknown>[];
   captureStartedAt: number;
   capture: RunRecordCapture;
   diagnostics: Diagnostic[];

@@ -110,7 +110,11 @@ function Confounders({ result }: { result: RunComparison }): ReactElement | null
 
 function VersionWarnings({ result }: { result: RunComparison }): ReactElement | null {
   const { guards } = result;
-  if (!guards.analyzerVersionMismatch && guards.detectorVersionMismatches.length === 0) {
+  if (
+    !guards.analyzerVersionMismatch &&
+    guards.detectorVersionMismatches.length === 0 &&
+    !guards.profileMismatch
+  ) {
     return null;
   }
 
@@ -123,6 +127,15 @@ function VersionWarnings({ result }: { result: RunComparison }): ReactElement | 
           {guards.analyzerVersionBefore} and {guards.analyzerVersionAfter}). Some of the
           movement below may be us rather than the system. The comparison continues, but
           treat it as indicative throughout.
+        </p>
+      )}
+      {guards.profileMismatch && (
+        <p className="error">
+          These runs were labelled by different profiles (
+          {guards.profileBefore ?? "no profile"} and {guards.profileAfter ?? "no profile"}).
+          No measurement changes because of that — a profile cannot alter a number — but
+          names, groupings, query rollups and pool figures may not line up, and an
+          unlabelled run has none of them at all.
         </p>
       )}
       {guards.detectorVersionMismatches.map((one) => (

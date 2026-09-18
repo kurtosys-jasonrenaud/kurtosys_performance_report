@@ -2,6 +2,8 @@ import type {
   Diagnostic,
   Finding,
   NormalisedCapture,
+  Profile,
+  ProfileOverlay,
   RunRecordCore,
 } from "@kurtosys/har-insights";
 
@@ -34,6 +36,12 @@ export interface AnalyseRequest {
    * file.text() on its own side.
    */
   file: File;
+  /**
+   * An optional client profile. It labels and scopes; it cannot change a
+   * measurement. Applied inside the worker because extracting a query id needs
+   * the request bodies, and those never leave this side of the boundary.
+   */
+  profile: Profile | null;
 }
 
 export interface PageRow {
@@ -134,6 +142,8 @@ export interface ReportModel {
   saturation: SaturationSummary;
   findings: Finding[];
   detectorVersions: Record<string, number>;
+  /** null when no profile was loaded. */
+  profile: ProfileOverlay | null;
   /** Derived half of the run record. Metadata is added on the page. */
   recordCore: RunRecordCore;
 }

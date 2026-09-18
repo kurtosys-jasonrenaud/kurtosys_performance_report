@@ -5,10 +5,12 @@ import {
   compareRuns,
   finaliseRunRecord,
   type ComparisonResult,
+  type Profile,
   type RunMetadata,
   type RunRecord,
   type RunWorkload,
 } from "@kurtosys/har-insights";
+import { ProfileView } from "./ui/ProfileView.js";
 import { Comparison } from "./ui/Comparison.js";
 import type { Phase, ReportModel, WorkerMessage } from "./worker/protocol.js";
 import { bytes, count, ms, optionalMs, statusSummary } from "./ui/format.js";
@@ -77,6 +79,9 @@ export default function App(): ReactElement {
   const [beforeRecord, setBeforeRecord] = useState<RunRecord | null>(null);
   const [afterRecord, setAfterRecord] = useState<RunRecord | null>(null);
   const [comparisonError, setComparisonError] = useState<string | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const lastFileRef = useRef<File | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const busyRef = useRef(false);
   const lastRecordRef = useRef<RunRecord | null>(null);
@@ -124,7 +129,8 @@ export default function App(): ReactElement {
   }, [spawnWorker]);
 
   const analyse = useCallback(
-    (file: File) => {
+    (file: File, withProfile: Profile | null) => {
+      lastFileRef.current = file;
       setRecordError(null);
       setVerification(null);
       setStatus({ kind: "working", phase: "reading", note: "Starting", fileName: file.name });
@@ -141,9 +147,34 @@ export default function App(): ReactElement {
       // The File itself crosses the boundary, not its text. Files are
       // structured-cloneable and the underlying data is not copied, so this page
       // never holds the capture in memory at all.
-      workerRef.current.postMessage({ kind: "analyse", file });
+      workerRef.current.postMessage({ kind: "analyse", file, profile: withProfile });
     },
     [spawnWorker],
+  );
+
+  /**
+   * Loading a profile re-runs the analysis rather than patching the view.
+   *
+   * The profile is applied inside the worker, over a finished result, and the
+   * only way to get an overlay is to produce one there. Patching it on here
+   * would be the first step towards a profile that can change a number.
+   */
+  const loadProfile = useCallback(
+    async (file: File) => {
+      setProfileError(null);
+      try {
+        const loaded = JSON.parse(await file.text()) as Profile;
+        if (typeof loaded?.id !== "string" || typeof loaded?.name !== "string") {
+          throw new Error("That file does not look like a profile: it has no id or name.");
+        }
+        setProfile(loaded);
+        const capture = lastFileRef.current;
+        if (capture !== null) analyse(capture, loaded);
+      } catch (error: unknown) {
+        setProfileError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [analyse],
   );
 
   const onDrop = useCallback(
@@ -151,9 +182,9 @@ export default function App(): ReactElement {
       event.preventDefault();
       setDragging(false);
       const file = event.dataTransfer.files[0];
-      if (file) analyse(file);
+      if (file) analyse(file, profile);
     },
-    [analyse],
+    [analyse, profile],
   );
 
   const model = status.kind === "ready" ? status.model : null;
@@ -305,7 +336,7 @@ export default function App(): ReactElement {
               accept=".har,application/json"
               onChange={(event) => {
                 const file = event.target.files?.[0];
-                if (file) analyse(file);
+                if (file) analyse(file, profile);
               }}
             />
           </label>
@@ -322,6 +353,32 @@ export default function App(): ReactElement {
               saves a step.
             </p>
           </div>
+        )}
+
+        <div className="profile-slot">
+          <label className="file-input subtle">
+            <span>Load a profile (optional)</span>
+            <input
+              type="file"
+              accept=".json"
+              data-testid="profile-input"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void loadProfile(file);
+              }}
+            />
+          </label>
+          <span className="muted small">
+            {profile === null
+              ? "Without one, everything below is generic: no query names, no pools, no assertions."
+              : "Loaded " + profile.name + " (" + profile.id + " v" + profile.version + ")"}
+          </span>
+        </div>
+
+        {profileError && (
+          <p className="error" role="alert">
+            {profileError}
+          </p>
         )}
 
         {status.kind === "failed" && (
@@ -519,6 +576,7 @@ function ComparePanel(props: {
 function Report({ model }: { model: ReportModel }): ReactElement {
   return (
     <>
+      <ProfileView model={model} />
       <CaptureSummary model={model} />
       <Diagnostics model={model} />
       <Endpoints model={model} />

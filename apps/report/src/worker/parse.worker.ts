@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import {
+  applyProfile,
   buildRouteLookup,
   buildRunRecordCore,
   normaliseHar,
@@ -7,6 +8,8 @@ import {
   runDetectors,
   type HarParseResult,
   type NormaliseResult,
+  type Profile,
+  type ProfileOverlay,
 } from "@kurtosys/har-insights";
 import type {
   AnalyseRequest,
@@ -34,10 +37,10 @@ const post = (message: WorkerMessage): void => {
 self.onmessage = (event: MessageEvent<AnalyseRequest>) => {
   const request = event.data;
   if (request?.kind !== "analyse") return;
-  void analyse(request.file);
+  void analyse(request.file, request.profile ?? null);
 };
 
-async function analyse(file: File): Promise<void> {
+async function analyse(file: File, profile: Profile | null): Promise<void> {
   try {
     const started = performance.now();
 
@@ -66,12 +69,17 @@ async function analyse(file: File): Promise<void> {
     const detectors = runDetectors(model);
     const afterDetect = performance.now();
 
-    const recordCore = buildRunRecordCore(model, detectors);
+    // The profile is applied AFTER detection, over a finished result. It can
+    // add and it can group; there is no path by which it can alter a count.
+    const overlay: ProfileOverlay | null =
+      profile === null ? null : applyProfile(model, detectors, profile);
+
+    const recordCore = buildRunRecordCore(model, detectors, overlay ?? undefined);
     const afterRecord = performance.now();
 
     post({
       kind: "done",
-      model: buildReportModel(file, model, detectors, recordCore, {
+      model: buildReportModel(file, model, detectors, overlay, recordCore, {
         readMs: afterRead - started,
         parseMs: afterParse - afterRead,
         normaliseMs: afterNormalise - afterParse,
@@ -92,6 +100,7 @@ function buildReportModel(
   file: File,
   model: NormaliseResult,
   detectors: ReturnType<typeof runDetectors>,
+  overlay: ProfileOverlay | null,
   recordCore: ReportModel["recordCore"],
   timings: ReportModel["timings"],
 ): ReportModel {
@@ -133,6 +142,7 @@ function buildReportModel(
     saturation,
     findings: [...detectors.findings],
     detectorVersions: detectors.detectorVersions,
+    profile: overlay,
     recordCore,
   };
 }

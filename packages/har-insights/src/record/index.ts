@@ -10,6 +10,7 @@ export type {
   RunRecordCapture,
   RunRecordCore,
   RunRecordFinding,
+  RunRecordProfile,
   RunWorkload,
 } from "./types.js";
 export { ANALYZER_VERSION, SCHEMA_VERSION } from "./types.js";

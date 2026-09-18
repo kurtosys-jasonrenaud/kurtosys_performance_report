@@ -250,3 +250,10 @@ td.presence { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em
   font: inherit; background: #fff; color: var(--ink);
 }
 .fields select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.profile-slot { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.assertions td.verdict { font-weight: 600; white-space: nowrap; }
+.assertions tr.pass td.verdict { color: var(--ok); }
+.assertions tr.fail td.verdict { color: var(--high); }
+.assertions tr.unevaluated td.verdict { color: var(--medium); }
+.assertions tr.fail { background: #fffafa; }

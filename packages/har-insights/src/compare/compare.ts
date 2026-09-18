@@ -128,7 +128,15 @@ function guardsFor(before: RunRecord, after: RunRecord): VersionGuards {
     }))
     .filter((row) => row.before !== row.after);
 
+  const profileOf = (record: RunRecord): string | null =>
+    record.profile === null || record.profile === undefined
+      ? null
+      : record.profile.id + " v" + String(record.profile.version);
+
   return {
+    profileBefore: profileOf(before),
+    profileAfter: profileOf(after),
+    profileMismatch: profileOf(before) !== profileOf(after),
     schemaVersionBefore: before.schemaVersion,
     schemaVersionAfter: after.schemaVersion,
     analyzerVersionBefore: before.analyzerVersion,

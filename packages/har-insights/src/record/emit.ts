@@ -1,6 +1,7 @@
 import { buildRouteLookup } from "../detect/page-route.js";
 import type { DetectorRunResult } from "../detect/registry.js";
 import type { NormaliseResult } from "../normalise/types.js";
+import type { ProfileOverlay } from "../profile/types.js";
 import type {
   RunMetadata,
   RunRecord,
@@ -120,6 +121,50 @@ const IN_FLIGHT_PAGE_KEYS = [
 
 const SATURATION_KEYS = ["totalEvents", "pathsSaturated", "withinMs"] as const;
 
+/**
+ * Profile-derived rows, copied by allowlist like everything else.
+ *
+ * queryId is recorded deliberately: naming the queries is the whole point of a
+ * profile, and a rollup of anonymous ids compares against nothing. A profile
+ * author points queryId at an identifier; if they point it at payload, payload
+ * is what gets recorded, and no allowlist here can tell the difference.
+ */
+const QUERY_KEYS = [
+  "path",
+  "queryId",
+  "label",
+  "runs",
+  "durationsMs",
+  "totalDurationMs",
+  "unknownDurationRuns",
+  "entryIndices",
+  "sourceIndexes",
+  "statusDistribution",
+  "distinctInputs",
+  "intraPageRepeats",
+  "sessionWideRepeats",
+] as const;
+
+const POOL_KEYS = [
+  "pool",
+  "paths",
+  "calls",
+  "maxInFlight",
+  "peakAtOffsetMs",
+  "peakEntryIndices",
+] as const;
+
+const ASSERTION_KEYS = [
+  "id",
+  "description",
+  "kind",
+  "expectation",
+  "observed",
+  "passed",
+  "evaluated",
+  "note",
+] as const;
+
 function pick(
   source: Record<string, unknown> | undefined,
   keys: readonly string[],
@@ -177,6 +222,7 @@ function hostsIn(model: NormaliseResult): string[] {
 export function buildRunRecordCore(
   model: NormaliseResult,
   detectors: DetectorRunResult,
+  overlay?: ProfileOverlay,
 ): RunRecordCore {
   const routeOf = buildRouteLookup(model.pages);
   const rollup = detectors.metrics["endpoint-rollup"];
@@ -208,6 +254,28 @@ export function buildRunRecordCore(
     schemaVersion: SCHEMA_VERSION,
     analyzerVersion: ANALYZER_VERSION,
     detectorVersions: { ...detectors.detectorVersions },
+    profile:
+      overlay === undefined
+        ? null
+        : {
+            id: overlay.profileId,
+            name: overlay.profileName,
+            version: overlay.profileVersion,
+            matched: overlay.matched,
+          },
+    queries: (overlay?.queries ?? []).map((row) =>
+      pick(row as unknown as Record<string, unknown>, QUERY_KEYS),
+    ),
+    pools: (overlay?.pools ?? []).map((row) =>
+      pick(row as unknown as Record<string, unknown>, POOL_KEYS),
+    ),
+    business: {
+      firstBusinessRequestMs: overlay?.business.firstBusinessRequestMs ?? null,
+      lastBusinessResponseMs: overlay?.business.lastBusinessResponseMs ?? null,
+    },
+    assertions: (overlay?.assertions ?? []).map((row) =>
+      pick(row as unknown as Record<string, unknown>, ASSERTION_KEYS),
+    ),
     captureStartedAt: model.capture.startedAt,
     capture: {
       entryCount: model.capture.entryCount,
@@ -322,6 +390,11 @@ export function buildRunRecord(
   detectors: DetectorRunResult,
   metadata: RunMetadata,
   workload?: RunWorkload,
+  overlay?: ProfileOverlay,
 ): RunRecord {
-  return finaliseRunRecord(buildRunRecordCore(model, detectors), metadata, workload);
+  return finaliseRunRecord(
+    buildRunRecordCore(model, detectors, overlay),
+    metadata,
+    workload,
+  );
 }
