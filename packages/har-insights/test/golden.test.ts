@@ -3,7 +3,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { runDetectors } from "../src/detect/registry.js";
 import { normaliseHar } from "../src/normalise/normalise.js";
 import { parseHar } from "../src/parse/parse-har.js";
-import type { NormaliseResult } from "../src/normalise/types.js";
+import type { NormalisedEntry, NormaliseResult } from "../src/normalise/types.js";
 import {
   CAPTURES_DIR,
   EXPECTATIONS_DIR,
@@ -33,6 +33,48 @@ const orphans = findOrphanCaptures(cases);
 
 let ran = 0;
 let skipped = 0;
+
+/**
+ * Maximum requests in flight across a slice of the capture.
+ *
+ * Mirrors the detector's rule deliberately rather than reusing it: an end is
+ * processed before a start at the same instant, and a zero-length request
+ * occupies no interval.
+ */
+function sweepMaxInFlight(entries: readonly NormalisedEntry[]): number {
+  const events: { time: number; start: boolean }[] = [];
+  for (const entry of entries) {
+    if (entry.endedAt === null || entry.endedAt === entry.startedAt) continue;
+    events.push({ time: entry.startedAt, start: true });
+    events.push({ time: entry.endedAt, start: false });
+  }
+  events.sort((a, b) => a.time - b.time || Number(a.start) - Number(b.start));
+
+  let inFlight = 0;
+  let max = 0;
+  for (const event of events) {
+    if (event.start) {
+      inFlight++;
+      if (inFlight > max) max = inFlight;
+    } else {
+      inFlight--;
+    }
+  }
+  return max;
+}
+
+/** True when a request body is a JSON object carrying every named key. */
+function bodyHasShape(body: string, keys: readonly string[]): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return false;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return false;
+  const record = parsed as Record<string, unknown>;
+  return keys.every((key) => key in record);
+}
 
 /** Tenth-of-a-second comparison, for values quoted to one decimal place. */
 function toTenthSecond(ms: number): number {
@@ -176,7 +218,11 @@ function describeCapture({ expectations, capturePath }: GoldenCase): void {
         detectors.metrics["endpoint-rollup"]?.["endpoints"] as
           | { path: string; calls: number; totalDurationMs: number; statusDistribution: Record<string, number> }[]
           | undefined
-      )?.filter((row) => row.path.startsWith(spec.pathPrefix)) ?? [];
+      )?.filter((row) =>
+        (spec.pathMatch ?? "startsWith") === "contains"
+          ? row.path.includes(spec.pathPrefix)
+          : row.path.startsWith(spec.pathPrefix),
+      ) ?? [];
 
       if (spec.totalCalls !== undefined) {
         it("total calls under " + spec.pathPrefix, () => {
@@ -231,6 +277,21 @@ function describeCapture({ expectations, capturePath }: GoldenCase): void {
       });
     }
 
+    for (const scope of want.concurrency?.scopes ?? []) {
+      it("concurrency ceiling within " + scope.label, () => {
+        const selected = model.entries.filter((entry) => {
+          if (scope.origin !== undefined && entry.origin !== scope.origin) return false;
+          if (scope.pathEquals !== undefined && entry.path !== scope.pathEquals) return false;
+          if (scope.pathContains !== undefined && !entry.path.includes(scope.pathContains)) {
+            return false;
+          }
+          return true;
+        });
+        expect(sweepMaxInFlight(selected), "no entries matched " + scope.label).toBeGreaterThan(0);
+        expect(sweepMaxInFlight(selected)).toBe(scope.maxInFlight);
+      });
+    }
+
     for (const wantedPage of want.pages ?? []) {
       describe("page " + wantedPage.pageRef, () => {
         const page = model.pages.find((candidate) => candidate.pageRef === wantedPage.pageRef);
@@ -247,7 +308,16 @@ function describeCapture({ expectations, capturePath }: GoldenCase): void {
 
         if (wantedPage.onLoadMs !== undefined) {
           it("onLoad timing", () => {
-            expect(page?.onLoadMs).toBe(wantedPage.onLoadMs);
+            const round = wantedPage.onLoadMsToNearest;
+            if (round === undefined) {
+              expect(page?.onLoadMs).toBe(wantedPage.onLoadMs);
+              return;
+            }
+            const actual = page?.onLoadMs;
+            expect(actual, "page reported no onLoad").not.toBeNull();
+            expect(Math.round((actual as number) / round) * round).toBe(
+              Math.round((wantedPage.onLoadMs as number) / round) * round,
+            );
           });
         }
 
@@ -284,13 +354,20 @@ function describeCapture({ expectations, capturePath }: GoldenCase): void {
       }
 
       // Session-wide repetition crosses pages, so it is computed here from the
-      // entries rather than by the within-page detector.
-      const byBodyKey = new Map<string, number>();
+      // entries rather than by the within-page detector, which only looks
+      // inside one page by design.
+      const shape = dup.payloadShape;
+      const byBodyKey = new Map<string, string[]>();
       for (const entry of model.entries) {
-        if (entry.requestBodyKey === null) continue;
-        byBodyKey.set(entry.requestBodyKey, (byBodyKey.get(entry.requestBodyKey) ?? 0) + 1);
+        if (entry.requestBodyKey === null || entry.requestBody === null) continue;
+        if (shape !== undefined && !bodyHasShape(entry.requestBody, shape)) continue;
+        const seen = byBodyKey.get(entry.requestBodyKey);
+        const page = entry.pageRef ?? "(no page)";
+        if (seen === undefined) byBodyKey.set(entry.requestBodyKey, [page]);
+        else seen.push(page);
       }
-      const repeats = [...byBodyKey.values()].filter((count) => count > 1).sort((a, b) => b - a);
+      const repeated = [...byBodyKey.values()].filter((pages) => pages.length > 1);
+      const repeats = repeated.map((pages) => pages.length).sort((a, b) => b - a);
 
       if (dup.sessionWideRepeatedPayloads !== undefined) {
         it("distinct payloads repeated anywhere in the capture", () => {
@@ -301,6 +378,18 @@ function describeCapture({ expectations, capturePath }: GoldenCase): void {
       if (dup.largestSessionWideRepeat !== undefined) {
         it("occurrences of the most repeated payload", () => {
           expect(repeats[0]).toBe(dup.largestSessionWideRepeat);
+        });
+      }
+
+      if (dup.intraPageRepeatsOfShape !== undefined) {
+        it("payloads of that shape repeated WITHIN a single page", () => {
+          // A payload appearing once per page across five pages is not the same
+          // finding as one appearing five times on one page. Only the second is
+          // redundant work a page is doing to itself.
+          const withinOnePage = repeated.filter(
+            (pages) => new Set(pages).size < pages.length,
+          ).length;
+          expect(withinOnePage).toBe(dup.intraPageRepeatsOfShape);
         });
       }
     }

@@ -42,7 +42,14 @@ export interface CaptureExpectations {
       unpagedEntries?: number;
     };
     servicesRollup?: {
+      /** The path fragment to select on. */
       pathPrefix: string;
+      /**
+       * How pathPrefix selects rows. "contains" catches endpoints mounted under
+       * another prefix — /ksys-app-manager/services/... is a service call even
+       * though the path does not begin with the fragment.
+       */
+      pathMatch?: "startsWith" | "contains";
       totalCalls?: number;
       totalDurationMsToTenthSecond?: number;
       endpoints?: {
@@ -54,24 +61,57 @@ export interface CaptureExpectations {
     };
     concurrency?: {
       globalMaxInFlight?: number;
+      /**
+       * Ceilings observed within a narrower slice of the capture.
+       *
+       * A global ceiling mixes everything the browser did at once, including
+       * simultaneous cache reads of static assets. A pool limit shows up only
+       * when you look at the requests that share the pool, so the scope has to
+       * be stated with the number.
+       */
+      scopes?: {
+        label: string;
+        pathEquals?: string;
+        pathContains?: string;
+        origin?: string;
+        maxInFlight: number;
+      }[];
     };
     pages?: {
       pageRef: string;
       route?: string;
       requests?: number;
       onLoadMs?: number;
+      /**
+       * Round both sides to this before comparing. Manual figures are often
+       * read off a waterfall to the nearest tenth of a second; asserting a
+       * float against a rounded reading fails on precision rather than on
+       * substance.
+       */
+      onLoadMsToNearest?: number;
       /** Page start to the start of the first JSON response. See the contract. */
       firstJsonResponseMs?: number | null;
       /** Page start to the end of the last JSON response. */
       lastJsonResponseMs?: number | null;
     }[];
     duplicatePayload?: {
-      /** Intra-page duplicate findings expected. Usually 0 once a fix shipped. */
+      /** Every intra-page duplicate finding the detector reports, unscoped. */
       intraPageFindings?: number;
       /** Distinct payloads repeated anywhere in the capture, across pages. */
       sessionWideRepeatedPayloads?: number;
       /** Occurrences of the single most repeated payload, session-wide. */
       largestSessionWideRepeat?: number;
+      /**
+       * Narrows the three counts above to request bodies that are JSON objects
+       * carrying ALL of these top-level keys.
+       *
+       * The keys live here, in a gitignored expectations file, and never in the
+       * committed harness: a payload shape is client-specific, and this
+       * repository is public. The harness reads them generically.
+       */
+      payloadShape?: string[];
+      /** Distinct payloads of that shape repeated within a single page. */
+      intraPageRepeatsOfShape?: number;
     };
   };
   /**
