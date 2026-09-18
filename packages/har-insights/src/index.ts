@@ -3,3 +3,4 @@ export { diagnostic } from "./diagnostics.js";
 export * from "./parse/index.js";
 export * from "./normalise/index.js";
 export * from "./detect/index.js";
+export * from "./record/index.js";

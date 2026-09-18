@@ -12,7 +12,8 @@
     "build": "pnpm -r build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "dev": "pnpm --filter @kurtosys/report dev"
   },
   "devDependencies": {
     "@types/node": "^26.6.1",

@@ -1,0 +1,212 @@
+/*
+ * Plain CSS on purpose. This is a table-heavy internal tool and a design system
+ * would cost more time than it saves.
+ *
+ * Plus Jakarta Sans is used where it is installed locally. It is deliberately
+ * NOT fetched from a font CDN: this page makes no network requests once it has
+ * loaded, and that claim is worth more than a guaranteed typeface.
+ */
+:root {
+  --ink: #12151a;
+  --ink-soft: #5b6472;
+  --line: #e2e6eb;
+  --page: #f7f8fa;
+  --card: #ffffff;
+  --accent: #1f5fd6;
+  --high: #b42318;
+  --medium: #b54708;
+  --low: #475467;
+  --ok: #027a48;
+  font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  font-weight: 500;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 20px 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+h1 { font-size: 26px; }
+h2 { font-size: 17px; }
+h3 { font-size: 14px; margin-bottom: 8px; }
+
+.masthead { padding: 8px 4px 0; }
+.lede { color: var(--ink-soft); margin: 6px 0 0; max-width: 62ch; }
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 20px;
+}
+.panel > h2 { margin-bottom: 4px; }
+
+.muted { color: var(--ink-soft); margin: 4px 0; }
+.small { font-size: 12px; }
+.note {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  background: #f1f5fd;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  color: #24405f;
+}
+.error {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  background: #fef3f2;
+  border-left: 3px solid var(--high);
+  border-radius: 0 6px 6px 0;
+  color: #7a271a;
+}
+
+/* file selection ------------------------------------------------------- */
+.dropzone {
+  margin-top: 12px;
+  border: 2px dashed var(--line);
+  border-radius: 10px;
+  padding: 28px;
+  text-align: center;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.dropzone.dragging { border-color: var(--accent); background: #f4f8ff; }
+.dropzone p { margin: 2px 0; }
+
+.file-input {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 8px;
+  padding: 8px 14px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 7px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.file-input.subtle { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+.file-input input { display: none; }
+
+.progress { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+.progress .muted { flex-basis: 100%; margin: 0; }
+.spinner {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--line); border-top-color: var(--accent);
+  animation: spin 700ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* metadata ------------------------------------------------------------- */
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.fields label { display: flex; flex-direction: column; gap: 4px; }
+.fields span { font-size: 12px; color: var(--ink-soft); font-weight: 600; }
+.fields input {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font: inherit;
+  background: #fff;
+}
+.fields input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.actions button {
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.actions button:disabled { background: #c9d2e0; cursor: not-allowed; }
+
+/* summary stats -------------------------------------------------------- */
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+}
+.stat { background: var(--page); border-radius: 8px; padding: 10px 12px; }
+.stat dt { font-size: 12px; color: var(--ink-soft); font-weight: 600; }
+.stat dd { margin: 2px 0 0; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* tables --------------------------------------------------------------- */
+.table-scroll { overflow-x: auto; margin-top: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+tbody tr:hover { background: #fbfcfe; }
+
+/* diagnostics and findings -------------------------------------------- */
+.diagnostics { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.diagnostics li { display: flex; gap: 10px; padding: 10px 12px; border-radius: 8px; background: var(--page); }
+.diagnostics p { margin: 0; }
+.code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; font-weight: 600; }
+.code em { font-style: normal; color: var(--ink-soft); }
+
+.badge {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: #eef1f5;
+  color: var(--low);
+  white-space: nowrap;
+}
+.severity-error .badge, .severity-high .badge { background: #fef3f2; color: var(--high); }
+.severity-warning .badge, .severity-medium .badge { background: #fffaeb; color: var(--medium); }
+.severity-info .badge, .severity-low .badge { background: #eef1f5; color: var(--low); }
+
+.detector { margin-top: 16px; }
+.finding { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+.finding header { display: flex; gap: 10px; align-items: baseline; }
+.finding .summary { margin: 0; font-weight: 600; }
+.finding .key {
+  margin: 6px 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--ink-soft);
+  word-break: break-all;
+}
+
+.evidence { margin: 10px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; }
+.evidence dt { font-size: 12px; color: var(--ink-soft); font-weight: 600; }
+.evidence dd { margin: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.evidence pre {
+  margin: 0;
+  font-size: 11px;
+  background: var(--page);
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  max-height: 260px;
+}
