@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": ".",
+    "rootDir": "./src",
     "outDir": "./dist",
     // types: [] is deliberate. The core package must compile with no ambient
     // Node or DOM declarations in scope, so that any accidental use of fs,
