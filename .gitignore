@@ -1,0 +1,37 @@
+# ---------------------------------------------------------------------------
+# SECURITY: this repository is PUBLIC.
+#
+# HAR captures contain session tokens in request headers and, on emulated
+# sessions, investor and internal email addresses in cleartext. They must never
+# reach this repo — not in a branch, not in a stash, not "temporarily".
+# These two rules exist before any other tooling and should not be relaxed.
+# ---------------------------------------------------------------------------
+*.har
+*.har.gz
+*.harx
+test/fixtures/
+**/test/fixtures/
+
+# Local capture scratch space, in case anyone drops a capture next to the code.
+captures/
+**/captures/
+
+# ---------------------------------------------------------------------------
+# Ordinary build and tooling noise
+# ---------------------------------------------------------------------------
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+.DS_Store
+.idea/
+.vscode/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+.env
+.env.*
+!.env.example
