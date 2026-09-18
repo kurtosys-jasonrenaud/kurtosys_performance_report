@@ -7,7 +7,7 @@ import {
   type RunRecord,
 } from "@kurtosys/har-insights";
 import type { Phase, ReportModel, WorkerMessage } from "./worker/protocol.js";
-import { bytes, count, ms, optionalMs, statusSummary, UNKNOWN } from "./ui/format.js";
+import { bytes, count, ms, optionalMs, statusSummary } from "./ui/format.js";
 
 type Status =
   | { kind: "idle" }
@@ -472,8 +472,8 @@ function Pages({ model }: { model: ReportModel }): ReactElement {
               <th>Route</th>
               <th className="num">Requests</th>
               <th className="num">onLoad</th>
-              <th className="num">Setup</th>
-              <th className="num">Data done</th>
+              <th className="num">First JSON</th>
+              <th className="num">Last JSON</th>
               <th className="num">Window</th>
               <th className="num">Transferred</th>
             </tr>
@@ -486,8 +486,8 @@ function Pages({ model }: { model: ReportModel }): ReactElement {
                 </td>
                 <td className="num">{count(page.requests)}</td>
                 <td className="num">{optionalMs(page.onLoadMs)}</td>
-                <td className="num">{UNKNOWN}</td>
-                <td className="num">{UNKNOWN}</td>
+                <td className="num">{optionalMs(page.firstJsonResponseMs)}</td>
+                <td className="num">{optionalMs(page.lastJsonResponseMs)}</td>
                 <td className="num">{ms(page.durationMs)}</td>
                 <td className="num">{bytes(page.transferBytes)}</td>
               </tr>
@@ -496,9 +496,12 @@ function Pages({ model }: { model: ReportModel }): ReactElement {
         </table>
       </div>
       <p className="note">
-        Setup and data done are blank on purpose. We have the figures from manual analysis
-        but not an agreed rule for computing them, and a column filled by a guess is worse
-        than one left empty.
+        First and last JSON are measured from the page start to the first JSON response
+        beginning and the last one ending. They are a proxy for when a page stopped setting
+        itself up and started fetching data — only a proxy, because configuration and
+        authentication calls answer in JSON too, so both read earlier than a figure that
+        knew which endpoint carried the business data. They are named for what they measure
+        so that naming stays true when profiles add that figure alongside them.
       </p>
     </section>
   );

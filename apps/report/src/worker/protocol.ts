@@ -47,6 +47,9 @@ export interface PageRow {
   transferBytes: number;
   startOffsetMs: number;
   endOffsetMs: number;
+  /** Proxy for when data fetching began. See the contract for why it is a proxy. */
+  firstJsonResponseMs: number | null;
+  lastJsonResponseMs: number | null;
 }
 
 export interface EndpointRow {

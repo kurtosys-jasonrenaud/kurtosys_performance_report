@@ -250,6 +250,18 @@ function describeCapture({ expectations, capturePath }: GoldenCase): void {
             expect(page?.onLoadMs).toBe(wantedPage.onLoadMs);
           });
         }
+
+        if (wantedPage.firstJsonResponseMs !== undefined) {
+          it("first JSON response", () => {
+            expect(page?.firstJsonResponseMs).toBe(wantedPage.firstJsonResponseMs);
+          });
+        }
+
+        if (wantedPage.lastJsonResponseMs !== undefined) {
+          it("last JSON response", () => {
+            expect(page?.lastJsonResponseMs).toBe(wantedPage.lastJsonResponseMs);
+          });
+        }
       });
     }
 
@@ -346,20 +358,29 @@ afterAll(() => {
 });
 
 /**
- * Opt-in hard failure for anyone running validation deliberately:
- *   GOLDEN_REQUIRED=1 pnpm test
- * Off by default because a clean checkout has no fixtures and should still be
- * able to run the rest of the suite green.
+ * Validating nothing is a failure, not a pass.
+ *
+ * This is the failure mode the whole golden step exists to close: a green suite
+ * that ran zero golden captures looks exactly like a green suite that validated
+ * everything. Skips are quiet, and a quiet skip in a CI log is indistinguishable
+ * from success to anyone reading the badge rather than the output.
+ *
+ * The cost is that a clean checkout fails this one test until somebody puts a
+ * capture in place, because fixtures are gitignored and cannot ship with the
+ * repository. That is the intended trade: a red suite that says why beats a
+ * green one that proved nothing.
  */
 describe("golden validation coverage", () => {
-  it("ran at least one golden capture when GOLDEN_REQUIRED is set", () => {
-    if (process.env["GOLDEN_REQUIRED"] !== "1") {
-      expect(true).toBe(true);
-      return;
-    }
+  it("validated at least one real capture", () => {
     expect(
       ran,
-      "GOLDEN_REQUIRED=1 was set but no real capture was validated.",
+      "No real capture was validated. Put a capture in " +
+        CAPTURES_DIR +
+        " and its expectations in " +
+        EXPECTATIONS_DIR +
+        ". Both are gitignored. Until then this repository has not been checked " +
+        "against anything real, and the rest of the suite passing does not say " +
+        "otherwise.",
     ).toBeGreaterThan(0);
   });
 });

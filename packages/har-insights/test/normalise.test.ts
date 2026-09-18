@@ -421,3 +421,76 @@ describe("immutability", () => {
     expect(() => (result.entries as unknown as unknown[]).sort()).toThrow();
   });
 });
+
+describe("JSON response markers", () => {
+  it("measures the first and last JSON response from the page start", () => {
+    const result = run(
+      har(
+        [
+          // HTML first, then JSON, then an image, then more JSON.
+          entry({ startedDateTime: at(1), time: 100, mimeType: "text/html", pageref: "page_1" }),
+          entry({ startedDateTime: at(2), time: 500, mimeType: "application/json", pageref: "page_1" }),
+          entry({ startedDateTime: at(3), time: 100, mimeType: "image/png", pageref: "page_1" }),
+          entry({ startedDateTime: at(5), time: 250, mimeType: "application/json; charset=utf-8", pageref: "page_1" }),
+        ],
+        [page({ id: "page_1", startedDateTime: at(0) })],
+      ),
+    );
+
+    const only = result.pages[0];
+    // First JSON starts 2s after the page started.
+    expect(only?.firstJsonResponseMs).toBe(2000);
+    // Last JSON ends 5s + 250ms after the page started.
+    expect(only?.lastJsonResponseMs).toBe(5250);
+  });
+
+  it("matches any mime type containing json, including +json suffixes", () => {
+    const result = run(
+      har(
+        [entry({ startedDateTime: at(1), time: 100, mimeType: "application/problem+json", pageref: "page_1" })],
+        [page({ id: "page_1", startedDateTime: at(0) })],
+      ),
+    );
+
+    expect(result.pages[0]?.firstJsonResponseMs).toBe(1000);
+  });
+
+  it("is null for a page with no JSON response at all", () => {
+    const result = run(
+      har(
+        [entry({ startedDateTime: at(1), mimeType: "text/css", pageref: "page_1" })],
+        [page({ id: "page_1", startedDateTime: at(0) })],
+      ),
+    );
+
+    expect(result.pages[0]?.firstJsonResponseMs).toBeNull();
+    expect(result.pages[0]?.lastJsonResponseMs).toBeNull();
+  });
+
+  it("falls back to the first entry when the page declares no start time", () => {
+    const broken = page({ id: "page_1" });
+    delete (broken as Record<string, unknown>)["startedDateTime"];
+    const result = run(
+      har(
+        [entry({ startedDateTime: at(4), time: 100, mimeType: "application/json", pageref: "page_1" })],
+        [broken],
+      ),
+    );
+
+    // Measured from its own first entry, so the first JSON is at zero.
+    expect(result.pages[0]?.startedAt).toBeNull();
+    expect(result.pages[0]?.firstJsonResponseMs).toBe(0);
+    expect(result.pages[0]?.lastJsonResponseMs).toBe(100);
+  });
+
+  it("treats an entry with unknown duration as ending when it started", () => {
+    const result = run(
+      har(
+        [entry({ startedDateTime: at(2), time: -1, mimeType: "application/json", pageref: "page_1" })],
+        [page({ id: "page_1", startedDateTime: at(0) })],
+      ),
+    );
+
+    expect(result.pages[0]?.lastJsonResponseMs).toBe(2000);
+  });
+});

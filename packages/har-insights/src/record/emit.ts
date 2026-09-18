@@ -218,6 +218,8 @@ export function buildRunRecordCore(
       lastEntryEndAt: page.lastEntryEndAt,
       durationMs: page.durationMs,
       transferBytes: page.transferBytes,
+      firstJsonResponseMs: page.firstJsonResponseMs,
+      lastJsonResponseMs: page.lastJsonResponseMs,
       // page.title is NOT recorded: Chrome writes the page URL there, query
       // string included, which is exactly where a session token lives.
     })),

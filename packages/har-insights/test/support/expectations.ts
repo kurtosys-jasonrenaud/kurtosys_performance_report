@@ -60,6 +60,10 @@ export interface CaptureExpectations {
       route?: string;
       requests?: number;
       onLoadMs?: number;
+      /** Page start to the start of the first JSON response. See the contract. */
+      firstJsonResponseMs?: number | null;
+      /** Page start to the end of the last JSON response. */
+      lastJsonResponseMs?: number | null;
     }[];
     duplicatePayload?: {
       /** Intra-page duplicate findings expected. Usually 0 once a fix shipped. */

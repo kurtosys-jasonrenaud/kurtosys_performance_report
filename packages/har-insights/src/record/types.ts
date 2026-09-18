@@ -3,8 +3,13 @@ import type { Diagnostic } from "../diagnostics.js";
 /**
  * Shape of the run record. Bumped when the RECORD SHAPE changes — a field
  * added, removed or renamed — regardless of whether any computation changed.
+ *
+ * 2: pages gained firstJsonResponseMs and lastJsonResponseMs. Purely additive,
+ *    so analyzerVersion stays where it is: no existing value changed meaning,
+ *    and a version-1 record remains comparable with a version-2 one on every
+ *    field they share.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * Version of the COMPUTATION as a whole. Bumped when the meaning of the derived

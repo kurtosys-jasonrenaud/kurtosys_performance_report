@@ -109,6 +109,8 @@ function buildReportModel(
     transferBytes: page.transferBytes,
     startOffsetMs: page.firstEntryAt - captureStart,
     endOffsetMs: page.lastEntryEndAt - captureStart,
+    firstJsonResponseMs: page.firstJsonResponseMs,
+    lastJsonResponseMs: page.lastJsonResponseMs,
   }));
 
   const rollup = detectors.metrics["endpoint-rollup"];

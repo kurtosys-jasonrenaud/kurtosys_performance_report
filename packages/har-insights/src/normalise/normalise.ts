@@ -372,6 +372,8 @@ function buildPages(
     let firstEntryAt = startedAt ?? 0;
     let lastEntryEndAt = firstEntryAt;
     let transferBytes = 0;
+    let firstJsonAt: number | null = null;
+    let lastJsonEndAt: number | null = null;
 
     if (indices.length > 0) {
       const firstIndex = indices[0];
@@ -384,8 +386,23 @@ function buildPages(
         const end = entry.endedAt ?? entry.startedAt;
         if (end > lastEntryEndAt) lastEntryEndAt = end;
         transferBytes += entry.transferBytes;
+
+        // A JSON response is a proxy for a data call. It is only a proxy —
+        // config and auth answer in JSON too — which is why the fields are
+        // named after the measurement rather than after what we hope it means.
+        if (entry.mimeType.toLowerCase().includes("json")) {
+          if (firstJsonAt === null || entry.startedAt < firstJsonAt) {
+            firstJsonAt = entry.startedAt;
+          }
+          if (lastJsonEndAt === null || end > lastJsonEndAt) lastJsonEndAt = end;
+        }
       }
     }
+
+    // Measured from the page's own start where the browser reported one, so
+    // these sit on the same baseline as onLoadMs. A page record with no usable
+    // startedDateTime falls back to its first entry.
+    const pageOrigin = startedAt ?? firstEntryAt;
 
     pages.push(
       Object.freeze({
@@ -400,6 +417,8 @@ function buildPages(
         lastEntryEndAt,
         durationMs: lastEntryEndAt - firstEntryAt,
         transferBytes,
+        firstJsonResponseMs: firstJsonAt === null ? null : firstJsonAt - pageOrigin,
+        lastJsonResponseMs: lastJsonEndAt === null ? null : lastJsonEndAt - pageOrigin,
       }),
     );
   }

@@ -178,6 +178,34 @@ export interface NormalisedPage {
   readonly durationMs: number;
 
   readonly transferBytes: number;
+
+  /**
+   * Page start to the START of the first entry on this page whose response mime
+   * type contains "json". null when the page has none.
+   *
+   * Named for what it measures, and that naming is the point. It is a PROXY for
+   * when a page stopped setting itself up and started fetching data, but it is
+   * only a proxy: configuration and authentication calls also return JSON, so
+   * this reads smaller than a profile-aware figure would. Calling it "setup"
+   * would be a promise the computation cannot keep.
+   *
+   * When a client profile can name the business endpoint, it ADDS a separate
+   * field for that rather than redefining this one. A field whose meaning
+   * changes between versions silently invalidates every stored comparison that
+   * spans the change, and no version stamp can rescue a reader who does not know
+   * the definition moved.
+   */
+  readonly firstJsonResponseMs: number | null;
+
+  /**
+   * Page start to the END of the last entry on this page whose response mime
+   * type contains "json". null when the page has none.
+   *
+   * See firstJsonResponseMs for why it is named this way. Entries with an
+   * unknown duration contribute their start time, so this is a lower bound when
+   * any are present.
+   */
+  readonly lastJsonResponseMs: number | null;
 }
 
 /** Capture-wide totals. All of these are counts or sizes except windowMs. */
