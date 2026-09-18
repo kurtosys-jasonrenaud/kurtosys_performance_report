@@ -46,6 +46,36 @@ browser.
 
 ---
 
+---
+
+## STANDING RULE: a summary states what was measured, never why
+
+A finding's `summary` states the measurement and stops there. It never states
+cause, intent or remedy.
+
+```
+good: "Identical request payload issued 3 times within /dashboards/"
+bad:  "Redundant call caused by two components requesting independently"
+bad:  "Should be deduplicated with a request cache"
+```
+
+The second is a hypothesis. The third is advice. Neither is a measurement, and
+the tool does not have the context to make either — it cannot see the code, the
+release, the client's configuration or what the team already knows. A person
+writes the story, using findings as evidence.
+
+This is the rule that erodes first, because a hypothesis reads as more helpful
+than a number and it is genuinely tempting to add one. It erodes the same way
+every time: a word like "unnecessary", "excessive" or "should" appears in a
+summary, nobody objects, and within a few months the tool is asserting causes it
+cannot possibly know in front of a client. Detectors report shape. They never
+assert intent or cause.
+
+The same rule applies to `title` on a detector and to anything that ends up in a
+run record.
+
+---
+
 ## Two kinds of fact
 
 Counts and durations do not compare the same way. Request counts, payload sizes
