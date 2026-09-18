@@ -13,8 +13,14 @@ test/fixtures/
 **/test/fixtures/
 
 # Local capture scratch space, in case anyone drops a capture next to the code.
+# These cover the whole directory, not just *.har, so a screenshot, a jq
+# extract or a notes file dropped alongside a capture is ignored too.
 captures/
 **/captures/
+har_sample/
+har_samples/
+**/har_sample/
+**/har_samples/
 
 # ---------------------------------------------------------------------------
 # Ordinary build and tooling noise

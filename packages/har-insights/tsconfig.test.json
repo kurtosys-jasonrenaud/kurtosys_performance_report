@@ -4,9 +4,11 @@
     "noEmit": true,
     "declaration": false,
     "declarationMap": false,
-    // Tests may see Vitest's types; src still compiles with types: [] under
-    // tsconfig.json, which is what keeps Node and DOM globals out of the core.
-    "types": ["vitest/globals"]
+    // Tests may see Vitest and Node types; src still compiles with types: []
+    // under tsconfig.json, which is what keeps Node and DOM globals out of the
+    // core. The golden tests need node:fs to read real captures from disk —
+    // reading files is the TEST's job, never the analysis package's.
+    "types": ["vitest/globals", "node"]
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
   "exclude": ["test/fixtures"]
